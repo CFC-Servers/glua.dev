@@ -13,6 +13,7 @@ echo "Starting the server with gamemode: $gamemode"
 mkdir -p "$server/data"
 touch "$server/console.log"
 
+pidfile="gmod.pid"
 echo "logfile flush 0" > "$home/.screenrc"
 
 base_srcds_args=(
@@ -47,6 +48,8 @@ base_srcds_args=(
     -disableluarefresh
     +mat_dxlevel 1
 
+    -pidfile "$pidfile"
+
     # Game setup
     -game garrysmod
     -ip 127.0.0.1
@@ -60,7 +63,7 @@ base_srcds_args=(
 srcds_args="$EXTRA_STARTUP_ARGS ${base_srcds_args[@]}"
 
 # Start command server
-exec busybox httpd -f -p 8080 -h /www &
+busybox httpd -f -p 8080 -h /www &
 
 # Start game server
 if [ "$gmodbranch" = "x86-64" ]; then
@@ -71,9 +74,19 @@ else
     screen -L -Logfile "$server/console.log" -dmS gmod "$gmodroot"/srcds_run "${srcds_args[@]}"
 fi
 
-# Wait for the server to stop, which closes the screen
-while screen -ls | grep -q "gmod"; do
-    sleep 1
+until [ -f "$server/$pidfile" ]; do
+    echo "Waiting for server to start..."
+    sleep 0.25
 done
+pid=$(cat "$server/$pidfile")
+
+tail \
+    --follow=name \
+    --retry \
+    --lines=500 \
+    --sleep-interval=0.25 \
+    --quiet \
+    --pid "$pid" \
+    "$server/console.log"
 
 echo "Server has stopped - exiting"

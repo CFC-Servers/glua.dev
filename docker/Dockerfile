@@ -3,6 +3,8 @@ FROM busybox:1.36 AS busybox_stage
 FROM ghcr.io/cfc-servers/steamcmd:latest
 
 ARG GMOD_BRANCH=live
+ARG GAME_VERSION=unknown
+ARG GLUA_DEV_TAG=unknown
 
 USER root
 ENV DEBIAN_FRONTEND=noninteractive
@@ -36,16 +38,20 @@ COPY base_server.cfg $server/cfg/test.cfg
 COPY --chmod=755 "entrypoint.sh" "/entrypoint.sh"
 
 RUN mkdir -p /www/cgi-bin
-COPY --chmod=755 "healthcheck.sh" "/www/cgi-bin/healthcheck.sh"
-COPY --chmod=755 "send-command.sh" "/www/cgi-bin/send-command.sh"
-COPY --chmod=755 "get-output.sh" "/www/cgi-bin/get-output.sh"
-COPY --chmod=755 "test.sh" "/www/cgi-bin/test.sh"
+COPY --chmod=755 "commands/healthcheck.sh" "/www/cgi-bin/healthcheck.sh"
+COPY --chmod=755 "commands/send-command.sh" "/www/cgi-bin/send-command.sh"
+COPY --chmod=755 "commands/get-output.sh" "/www/cgi-bin/get-output.sh"
+COPY --chmod=755 "commands/start.sh" "/www/cgi-bin/start.sh"
 
 RUN chown --recursive steam:steam \
     "/entrypoint.sh" \
     "/www"
 
 USER steam
+RUN mkdir -v "$home/metadata" && \
+    echo "${GAME_VERSION}" > "$home/metadata/game_version.txt" && \
+    echo "${GMOD_BRANCH}" > "$home/metadata/branch.txt" && \
+    echo "${GLUA_DEV_TAG}" > "$home/metadata/container_tag.txt"
 
 ENV GMOD_BRANCH=${GMOD_BRANCH}
 

@@ -49,7 +49,12 @@ runs:
       run: |
         cd ${{ inputs.path }}/docker
 
-        docker build --build-arg="GMOD_BRANCH=${{ inputs.gmod_branch }}" --tag glua_dev_fat:latest .
+        docker build \
+          --build-arg="GMOD_BRANCH=${{ inputs.gmod_branch }}" \
+          --build-arg="GAME_VERSION=${{ inputs.game_version }}" \
+          --build-arg="GLUA_DEV_TAG=${{ inputs.tag_name }}" \
+          --tag glua_dev_fat:latest \
+          .
 
     - name: Make slim image
       shell: bash
@@ -78,8 +83,10 @@ runs:
           --include-bin "/usr/bin/cp" \
           --include-bin "/usr/bin/screen" \
           --include-path "/www" \
+          --include-path "/home/steam/metadata" \
           --include-shell \
           --expose 8080 \
+          --http-probe-cmd /cgi-bin/start.sh \
           --http-probe-cmd /cgi-bin/healthcheck.sh \
           --http-probe-cmd /cgi-bin/get-output.sh \
           --http-probe-cmd post:/cgi-bin/send-command.sh \
