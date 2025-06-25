@@ -62,7 +62,9 @@ const findContainer = (env: Env, sessionId: string, branch: string): DurableObje
 }
 
 const createRequest = (endpoint: string, method: string = "GET", body?: string): Request => {
-  return new Request(`http://localhost:8080/cgi-bin/${endpoint}`, { method, body });
+  const url = `http://127.0.0.1:8080/cgi-bin/${endpoint}`;
+  console.log(`Creating request for endpoint: ${url}, method: ${method}, body: ${body}`);
+  return new Request(url, { method, body });
 }
 
 /**
@@ -107,7 +109,7 @@ const handleApiRequest = async (request: Request, env: Env): Promise<Response> =
     return new Response("Not Found", { status: 404 });
   } catch (error) {
     console.error("API Error:", error);
-    const errorResponse = { error: "An internal server error occurred." };
+    const errorResponse = { error: "An internal server error occurred.", details: error instanceof Error ? error.message : "Unknown error" };
 
     return new Response(JSON.stringify(errorResponse), { 
       status: 500, 
@@ -126,12 +128,7 @@ const handleStartSession = async (env: Env, branch: string | null): Promise<Resp
   }
 
   const sessionId = crypto.randomUUID();
-  const container = findContainer(env, sessionId, branch);
-
-  await container.startAndWaitForPorts(8080, {
-    "instanceGetTimeoutMS": 60000,
-    "portReadyTimeoutMS": 20000
-  })
+  findContainer(env, sessionId, branch);
 
   return new Response(JSON.stringify({ sessionId }), {
     headers: { "Content-Type": "application/json" },
@@ -145,7 +142,7 @@ const handleStartSession = async (env: Env, branch: string | null): Promise<Resp
 const handleGetLogs = async (env: Env, sessionId: string, branch: string): Promise<Response> => {
   const containerInstance = findContainer(env, sessionId, branch)
   const containerRequest = createRequest("get-output", "GET")
-  const containerResponse = await containerInstance.fetch(containerRequest)
+  const containerResponse = await containerInstance.containerFetch(containerRequest)
 
   if (!containerResponse.ok) {
     return new Response(`Failed to fetch logs from container (status: ${containerResponse.status}).`, { status: 502 })
@@ -194,7 +191,7 @@ const handleSendCommand = async (request: Request, env: Env, sessionId: string, 
   const container = findContainer(env, sessionId, branch);
   const containerRequest = createRequest("command", "POST", command)
 
-  const containerResponse = await container.fetch(containerRequest)
+  const containerResponse = await container.containerFetch(containerRequest)
   return new Response(null, { status: containerResponse.status })
 };
 
@@ -202,7 +199,7 @@ const handleHealthCheck = async (env: Env, sessionId: string, branch: string): P
   const container = findContainer(env, sessionId, branch);
   const containerRequest = createRequest("healthcheck.sh");
 
-  const containerResponse = await container.fetch(containerRequest);
+  const containerResponse = await container.containerFetch(containerRequest);
   return new Response(null, { status: containerResponse.status });
 }
 

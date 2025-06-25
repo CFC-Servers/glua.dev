@@ -2,6 +2,7 @@
     "$schema": "node_modules/wrangler/config-schema.json",
     "name": "glua-dev",
     "main": "src/index.ts",
+    "logpush": true,
     "compatibility_date": "2025-06-20",
     "assets": {
         "directory": "./public"

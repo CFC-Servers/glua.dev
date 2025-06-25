@@ -3,7 +3,7 @@
 home=/home/steam
 gmodroot=$home/gmodserver
 server=$home/gmodserver/garrysmod
-gmodbranch="${GMOD_BRANCH}"
+gmodbranch="${GMOD_BRANCH:-live}"
 
 gamemode="${GAMEMODE:-sandbox}"
 collection="${COLLECTION_ID:-0}"
