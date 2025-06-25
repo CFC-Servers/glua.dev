@@ -1,19 +1,22 @@
-import { Container } from '@cloudflare/containers';
+import { Container } from "@cloudflare/containers";
 
 // Define the interface for environment variables and bindings from wrangler.toml
 export interface Env {
-  GLUA_RUNNER: any;
+  GmodPublic: any;
+  GmodSixtyFour: any;
+  GmodPrerelease: any;
+  GmodDev: any;
   LOG_BUCKET: R2Bucket;
 }
 
 export class GLuaRunner extends Container {
   defaultPort = 8080;
-  sleepAfter = '3m';
+  sleepAfter = "3m";
 }
 
 const getContainer = (env: Env, sessionId: string): GLuaRunner => {
-  const id = env.GLUA_RUNNER.idFromName(sessionId)
-  const container = env.GLUA_RUNNER.get(id)
+  const id = env.GmodPublic.idFromName(sessionId)
+  const container = env.GmodPublic.get(id)
 
   if (!container) {
     throw new Error(`Container with session ID ${sessionId} not found.`)
@@ -27,10 +30,10 @@ const createRequest = (endpoint: string, method: string = "GET", body?: string):
 }
 
 /**
- * A simple router to handle API requests.
- * @param request The incoming request.
- * @param env The environment bindings.
- * @returns A response promise.
+ * Request router
+ * @param request The incoming request
+ * @param env The environment bindings
+ * @returns A response promise
  */
 const handleApiRequest = async (request: Request, env: Env): Promise<Response> => {
   const { pathname } = new URL(request.url);
@@ -77,7 +80,7 @@ const handleStartSession = async (): Promise<Response> => {
 
 /**
  * Fetches the latest logs from a container, appends them to R2 storage,
- * and returns only the new logs to the client.
+ * and returns only the new logs to the client
  */
 const handleGetLogs = async (request: Request, env: Env): Promise<Response> => {
   const { searchParams } = new URL(request.url);
@@ -113,7 +116,7 @@ const handleGetLogs = async (request: Request, env: Env): Promise<Response> => {
 };
 
 /**
- * Retrieves the entire log history for a session from R2.
+ * Retrieves the entire log history for a session from R2
  */
 const handleGetHistory = async (request: Request, env: Env): Promise<Response> => {
   const { searchParams } = new URL(request.url);
@@ -134,7 +137,7 @@ const handleGetHistory = async (request: Request, env: Env): Promise<Response> =
 };
 
 /**
- * Forwards a command from the client to the specified container.
+ * Forwards a command from the client to the specified container
  */
 const handleSendCommand = async (request: Request, env: Env): Promise<Response> => {
   const { searchParams } = new URL(request.url)
@@ -164,14 +167,14 @@ const handleHealthCheck = async (request: Request, env: Env): Promise<Response> 
     return new Response("Session is required", { status: 400 });
   }
 
-  const container = env.GLUA_RUNNER.get(sessionId);
+  const container = getContainer(env, sessionId);
   const containerRequest = createRequest("healthcheck.sh");
 
   const containerResponse = await container.fetch(containerRequest);
   return new Response(null, { status: containerResponse.status });
 }
 
-// The main fetch handler for the Worker.
+// The main fetch handler for the Worker
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
@@ -179,9 +182,6 @@ export default {
       return handleApiRequest(request, env);
     }
 
-    // For any other path, Wrangler's `[site]` configuration will attempt to
-    // serve a static asset from the `public` directory. If no asset is found,
-    // it will fall through, so we return a 404.
     return new Response("Not Found", { status: 404 });
   },
 };
