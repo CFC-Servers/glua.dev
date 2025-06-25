@@ -48,6 +48,17 @@
             { "name": "GMOD_PRERELEASE", "class_name": "GmodPrerelease" },
             { "name": "GMOD_DEV", "class_name": "GmodDev" }
         ]
-    }
+    },
+    "migrations": [
+        {
+            "tag": "v1",
+            "new_classes": [
+                "GmodPublic",
+                "GmodSixtyFour",
+                "GmodPrerelease",
+                "GmodDev"
+            ]
+        }
+    ]
 
 }
