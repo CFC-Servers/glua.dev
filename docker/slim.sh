@@ -1,0 +1,11 @@
+slim build \
+    --target glua-dev:latest \
+    --http-probe-off \
+    --continue-after 10 \
+    --show-clogs --show-blogs \
+    --include-bin "/usr/bin/date" \
+    --include-bin "/usr/bin/echo" \
+    --include-bin "/usr/bin/cp" \
+    --include-bin "/home/steam/gmodserver/bin/libbass.so" \
+    --include-bin "/home/steam/gmodserver/bin/linux64/libbass.so" \
+    --tag glua-dev-slim:latest \
