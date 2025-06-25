@@ -200,7 +200,7 @@ const handleHealthCheck = async (env: Env, sessionId: string, branch: string): P
   const containerRequest = createRequest("healthcheck.sh");
 
   const containerResponse = await container.containerFetch(containerRequest);
-  return new Response(null, { status: containerResponse.status });
+  return containerResponse
 }
 
 // The main fetch handler for the Worker

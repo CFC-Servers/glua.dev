@@ -5,12 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Server Console</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Library to convert ANSI to HTML -->
+    <script src="https://unpkg.com/ansi_up@5.1.0/ansi_up.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
     <style>
-        body {
-            font-family: 'Fira Code', monospace;
-            background-color: #111827;
-        }
+        body { font-family: 'Fira Code', monospace; background-color: #111827; }
         ::-webkit-scrollbar { width: 8px; }
         ::-webkit-scrollbar-track { background: #1F2937; }
         ::-webkit-scrollbar-thumb { background: #4B5563; border-radius: 4px; }
@@ -23,21 +22,21 @@
             background-repeat: no-repeat;
             background-size: 1.5em 1.5em;
             padding-right: 2.5rem;
-            -webkit-appearance: none;
-            -moz-appearance: none;
-            appearance: none;
+            -webkit-appearance: none; -moz-appearance: none; appearance: none;
         }
+        #status-panel.collapsed .panel-content { max-height: 0px; opacity: 0; padding-top: 0; padding-bottom: 0; margin-top: 0; }
+        #status-panel .toggle-icon { transition: transform 0.3s ease; }
+        #status-panel.collapsed .toggle-icon { transform: rotate(180deg); }
     </style>
 </head>
 <body class="text-gray-200 antialiased">
 
     <!-- Start Session Modal -->
     <div id="start-modal-backdrop" class="fixed inset-0 bg-gray-900 bg-opacity-80 flex items-center justify-center z-50 transition-opacity duration-300">
-        <div class="bg-gray-800 p-8 rounded-lg shadow-2xl transform scale-95 transition-transform duration-300 w-full max-w-md">
-            <!-- Initial State -->
+         <div class="bg-gray-800 p-8 rounded-lg shadow-2xl transform scale-95 transition-transform duration-300 w-full max-w-md">
             <div id="modal-initial-state">
                 <h2 class="text-2xl font-bold mb-4 text-white">Start New Console Session</h2>
-                <p class="text-gray-400 mb-6">Select a container type and press Start to spin up a new instance</p>
+                <p class="text-gray-400 mb-6">Select a container type and press Start to spin up a new instance.</p>
                 <div class="mb-6">
                     <label for="container-type-select" class="block text-sm font-medium text-gray-300 mb-2 text-left">GMod Branch</label>
                     <select id="container-type-select" class="block w-full bg-gray-700 border border-gray-600 text-white rounded-md p-3 focus:outline-none focus:ring-2 focus:ring-indigo-500">
@@ -47,16 +46,10 @@
                         <option value="dev">Dev</option>
                     </select>
                 </div>
-                <button id="start-session-button" class="bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-3 px-8 rounded-lg transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-indigo-400 disabled:bg-gray-500 disabled:cursor-wait">
-                    Start
-                </button>
+                <button id="start-session-button" class="bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-3 px-8 rounded-lg transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-indigo-400 disabled:bg-gray-500 disabled:cursor-wait">Start</button>
             </div>
-            <!-- Loading State -->
             <div id="modal-loading-state" class="hidden">
-                <svg class="animate-spin h-8 w-8 text-indigo-400 mx-auto mb-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                </svg>
+                <svg class="animate-spin h-8 w-8 text-indigo-400 mx-auto mb-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
                 <h2 class="text-xl font-bold mb-2 text-white">Getting your environment set up...</h2>
                 <p class="text-gray-400">The container is starting. This may take a few moments.</p>
             </div>
@@ -65,32 +58,101 @@
 
     <!-- Main Console UI -->
     <div id="console-container" class="hidden fixed inset-0 flex flex-col p-4 bg-gray-900">
+        <!-- STATUS WIDGET -->
+        <div id="status-panel" class="collapsed absolute top-4 right-4 z-20 w-72">
+            <div class="bg-gray-800 rounded-lg shadow-lg border border-gray-700/50">
+                <button id="status-toggle-button" class="w-full flex justify-between items-center p-3 text-left focus:outline-none">
+                    <span class="font-bold text-sm text-white">Session Status</span>
+                    <svg class="toggle-icon w-5 h-5 text-gray-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" /></svg>
+                </button>
+                <div class="panel-content overflow-hidden transition-all duration-300 ease-in-out max-h-0 opacity-0">
+                    <div class="px-4 pb-4 space-y-4">
+                        <div>
+                            <div class="flex justify-between items-baseline mb-1">
+                                <span class="text-xs font-semibold text-gray-300">CPU Usage</span>
+                                <span id="cpu-usage-label" class="text-xs font-mono text-indigo-300">0%</span>
+                            </div>
+                            <div class="w-full bg-gray-700 rounded-full h-1.5"><div id="cpu-usage-bar" class="bg-indigo-500 h-1.5 rounded-full transition-all duration-500" style="width: 0%"></div></div>
+                        </div>
+                        <div>
+                            <div class="flex justify-between items-baseline mb-1">
+                                <span class="text-xs font-semibold text-gray-300">Disk Usage</span>
+                                <span id="disk-usage-label" class="text-xs font-mono text-cyan-300">0%</span>
+                            </div>
+                            <div class="w-full bg-gray-700 rounded-full h-1.5"><div id="disk-usage-bar" class="bg-cyan-500 h-1.5 rounded-full transition-all duration-500" style="width: 0%"></div></div>
+                        </div>
+                        <div class="border-t border-gray-700 pt-3 text-xs space-y-2">
+                            <div class="flex justify-between"><span class="text-gray-400">Branch:</span><span id="context-branch" class="font-mono text-gray-200 truncate">...</span></div>
+                            <div class="flex justify-between"><span class="text-gray-400">Game Ver:</span><span id="context-game-version" class="font-mono text-gray-200 truncate">...</span></div>
+                            <div class="flex justify-between"><span class="text-gray-400">Container:</span><span id="context-container-tag" class="font-mono text-gray-200 truncate">...</span></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
         <div id="output-container" class="flex-grow overflow-y-auto overflow-x-hidden"></div>
         <div class="mt-4 flex items-center border-t border-gray-700 pt-3">
             <span class="text-green-400 mr-2 shrink-0">&gt;</span>
-            <input type="text" id="command-input" class="w-full bg-transparent border-none focus:ring-0 text-gray-200 placeholder-gray-500" placeholder="Enter command..." autocomplete="off" autofocus disabled>
+            <input type="text" id="command-input" class="w-full bg-transparent border-none focus:ring-0 focus:outline-none text-gray-200 placeholder-gray-500" placeholder="Enter command..." autocomplete="off" autofocus disabled>
         </div>
     </div>
 
     <script type="module">
-        class AnsiParser {
-            static ansiColorMap = { "30":"text-black","31":"text-red-500","32":"text-green-500","33":"text-yellow-500","34":"text-blue-500","35":"text-purple-500","36":"text-cyan-500","37":"text-white","90":"text-gray-400","91":"text-red-400","92":"text-green-400","93":"text-yellow-400","94":"text-blue-400","95":"text-purple-400","96":"text-cyan-400","97":"text-gray-200","40":"bg-black","41":"bg-red-500","42":"bg-green-500","43":"bg-yellow-500","44":"bg-blue-500","45":"bg-purple-500","46":"bg-cyan-500","47":"bg-white", "1":"font-bold" };
-            static parse(text) { const ansiRegex = /\u001b\[([0-9;]*?)m/g; let lastIndex = 0; let result = []; let match; while ((match = ansiRegex.exec(text)) !== null) { const plainText = text.substring(lastIndex, match.index); if (plainText) { result.push({ text: plainText, classes: [] }); } const codes = match[1].split(';').filter(code => code !== ""); if (codes.length === 0 || codes[0] === "0") { result.push({ text: "", classes: ["reset"] }); } else { const classes = codes.map(code => AnsiParser.ansiColorMap[code] || ""); result.push({ text: "", classes }); } lastIndex = ansiRegex.lastIndex; } const remainingText = text.substring(lastIndex); if (remainingText) { result.push({ text: remainingText, classes: [] }); } return result; }
-        }
-
         class VirtualConsole {
-            constructor(containerId, maxLines = 5000) { this.container = document.getElementById(containerId); this.maxLines = maxLines; this.lines = []; this.isAtBottom = true; this.container.addEventListener('scroll', () => { const scrollThreshold = 5; this.isAtBottom = this.container.scrollHeight - this.container.scrollTop - this.container.clientHeight < scrollThreshold; }); }
+            constructor(containerId, maxLines = 5000) {
+                this.container = document.getElementById(containerId);
+                this.maxLines = maxLines;
+                this.lines = [];
+                this.isAtBottom = true;
+                this.ansiUp = new AnsiUp(); // Initialize the converter
+                this.container.addEventListener('scroll', () => {
+                    const scrollThreshold = 5;
+                    this.isAtBottom = this.container.scrollHeight - this.container.scrollTop - this.container.clientHeight < scrollThreshold;
+                });
+            }
             addLine(lineContent) { this.addLines([lineContent]); }
-            addLines(newLines) { if (!newLines || newLines.length === 0 || (newLines.length === 1 && !newLines[0])) return; const fragment = document.createDocumentFragment(); for (const line of newLines) { const lineElement = this.createLineElement(line); fragment.appendChild(lineElement); this.lines.push(lineElement); } this.container.appendChild(fragment); this.trimOldLines(); this.scrollToBottomIfNeeded(); }
-            createLineElement(text) { const lineDiv = document.createElement('div'); lineDiv.className = 'console-output-line'; const segments = AnsiParser.parse(text); let currentClasses = []; for (const segment of segments) { if (segment.classes.includes("reset")) { currentClasses = []; continue; } currentClasses = [...currentClasses, ...segment.classes.filter(c => c)]; if(segment.text) { const span = document.createElement('span'); span.textContent = segment.text; span.className = [...new Set(currentClasses)].join(' '); lineDiv.appendChild(span); } } return lineDiv; }
-            trimOldLines() { while (this.lines.length > this.maxLines) { const oldLine = this.lines.shift(); oldLine?.parentNode?.removeChild(oldLine); } }
-            scrollToBottomIfNeeded() { if (this.isAtBottom) { this.container.scrollTop = this.container.scrollHeight; } }
+            addLines(newLines) {
+                if (!newLines || newLines.length === 0 || (newLines.length === 1 && !newLines[0])) return;
+                const fragment = document.createDocumentFragment();
+                for (const line of newLines) {
+                    const lineElement = this.createLineElement(line);
+                    fragment.appendChild(lineElement);
+                    this.lines.push(lineElement);
+                }
+                this.container.appendChild(fragment);
+                this.trimOldLines();
+                this.scrollToBottomIfNeeded();
+            }
+            createLineElement(text) {
+                const lineDiv = document.createElement('div');
+                lineDiv.className = 'console-output-line';
+                // Convert ANSI to styled HTML and set it directly
+                lineDiv.innerHTML = this.ansiUp.ansi_to_html(text);
+                return lineDiv;
+            }
+            trimOldLines() {
+                while (this.lines.length > this.maxLines) {
+                    const oldLine = this.lines.shift();
+                    oldLine?.parentNode?.removeChild(oldLine);
+                }
+            }
+            scrollToBottomIfNeeded() {
+                if (this.isAtBottom) {
+                    this.container.scrollTop = this.container.scrollHeight;
+                }
+            }
+        }
+        
+        class CommandHandler {
+            constructor(inputId, console, commandCallback) { this.input = document.getElementById(inputId); this.history = []; this.historyIndex = -1; this.commandCallback = commandCallback; this.input.addEventListener("keydown", (e) => { if (e.key === "Enter" && this.input.value.trim() !== "") { const command = this.input.value; this.history.unshift(command); if (this.history.length > 50) this.history.pop(); this.commandCallback(command); this.input.value = ""; this.historyIndex = -1; } else if (e.key === "ArrowUp") { e.preventDefault(); if (this.history.length > 0 && this.historyIndex < this.history.length - 1) { this.historyIndex++; this.input.value = this.history[this.historyIndex]; } } else if (e.key === "ArrowDown") { e.preventDefault(); if (this.historyIndex > 0) { this.historyIndex--; this.input.value = this.history[this.historyIndex]; } else { this.historyIndex = -1; this.input.value = ""; } } }); }
         }
 
         class AppController {
             constructor() {
-                this.session = { id: null, type: null };
+                this.session = { id: null, type: null, context: {}, stats: {} };
                 this.logPollIntervalId = null;
+                this.statsPollIntervalId = null;
                 this.console = new VirtualConsole("output-container");
                 this.commandHandler = new CommandHandler("command-input", this.console, this.sendCommand.bind(this));
                 this.ui = { 
@@ -100,16 +162,25 @@
                     containerTypeSelect: document.getElementById("container-type-select"),
                     startButton: document.getElementById("start-session-button"), 
                     consoleContainer: document.getElementById("console-container"), 
-                    commandInput: document.getElementById("command-input") 
+                    commandInput: document.getElementById("command-input"),
+                    statusPanel: document.getElementById("status-panel"),
+                    statusToggleButton: document.getElementById("status-toggle-button"),
+                    cpuUsageLabel: document.getElementById("cpu-usage-label"),
+                    cpuUsageBar: document.getElementById("cpu-usage-bar"),
+                    diskUsageLabel: document.getElementById("disk-usage-label"),
+                    diskUsageBar: document.getElementById("disk-usage-bar"),
+                    contextBranch: document.getElementById("context-branch"),
+                    contextGameVersion: document.getElementById("context-game-version"),
+                    contextContainerTag: document.getElementById("context-container-tag"),
                 };
                 this.ui.startButton.addEventListener("click", this.startNewSession.bind(this));
+                this.ui.statusToggleButton.addEventListener("click", () => this.ui.statusPanel.classList.toggle("collapsed"));
             }
 
             init() {
                 const params = new URLSearchParams(window.location.search);
                 const sessionId = params.get("session");
                 const sessionType = params.get("type");
-
                 if (sessionId && sessionType) {
                     this.resumeSession(sessionId, sessionType);
                 } else {
@@ -119,19 +190,43 @@
             }
             
             async startSession(sessionId, sessionType) {
-                this.session = { id: sessionId, type: sessionType };
+                this.session.id = sessionId;
+                this.session.type = sessionType;
                 this.updateUrl();
                 this.ui.modal.classList.add("hidden");
                 this.ui.consoleContainer.classList.remove("hidden");
                 this.ui.commandInput.disabled = false;
                 this.ui.commandInput.focus();
+                
+                await this.fetchInitialStatus();
                 this.startLogPolling();
+                this.startStatsPolling();
             }
-
+            
             async resumeSession(sessionId, sessionType) {
+                // Set session details immediately so other functions can use them
+                this.session.id = sessionId;
+                this.session.type = sessionType;
+
+                // Immediately hide the modal and show the console
+                this.ui.modal.classList.add("hidden");
+                this.ui.consoleContainer.classList.remove("hidden");
+                
                 this.console.addLine(`\u001b[33mRestoring session (${sessionType})...\u001b[0m`);
+
+                // Fetch and display the entire log history
                 await this.fetchHistory();
-                await this.startSession(sessionId, sessionType);
+                
+                // Now that history is loaded, finish setting up the live session
+                this.updateUrl();
+                this.ui.commandInput.disabled = false;
+                this.ui.commandInput.focus();
+                
+                await this.fetchInitialStatus();
+                this.console.addLine(`\u001b[32mConnection re-established. Live polling started.\u001b[0m`);
+
+                this.startLogPolling();
+                this.startStatsPolling();
             }
 
             async startNewSession() {
@@ -139,7 +234,6 @@
                 this.ui.modalLoadingState.classList.remove("hidden");
                 
                 const sessionType = this.ui.containerTypeSelect.value;
-
                 try {
                     const response = await fetch(`/api/start?type=${sessionType}`, { method: "POST" });
                     if (!response.ok) throw new Error(`Server error: ${response.statusText}`);
@@ -157,17 +251,15 @@
                 let attempts = 0;
                 const maxAttempts = 30;
                 const pollDelay = 2000;
-
                 this.console.addLine(`\u001b[33mPinging container (${sessionType}) for readiness...\u001b[0m`);
 
                 const poll = async () => {
                     if (attempts >= maxAttempts) {
-                        this.console.addLine(`\u001b[31mContainer failed to respond after ${maxAttempts * (pollDelay/1000)} seconds. Please try again.\u001b[0m`);
+                        this.console.addLine(`\u001b[31mContainer failed to respond. Please try again.\u001b[0m`);
                         this.ui.modalInitialState.classList.remove("hidden");
                         this.ui.modalLoadingState.classList.add("hidden");
                         return;
                     }
-
                     attempts++;
                     try {
                         const response = await fetch(`/api/health?session=${sessionId}&type=${sessionType}`);
@@ -177,14 +269,10 @@
                             return;
                         }
                     } catch (error) {
-                        console.warn(`Health check attempt ${attempts} failed, will retry...`);
+                         console.warn(`Health check attempt ${attempts} failed, will retry...`);
                     }
-
-                    // If not successful, schedule the next poll.
                     setTimeout(poll, pollDelay);
                 };
-
-                // Start the first poll
                 poll();
             }
 
@@ -196,9 +284,40 @@
                 window.history.pushState({ ...this.session }, "", url.toString());
             }
 
+            async fetchInitialStatus() {
+                 try {
+                    const response = await fetch(`/api/health?session=${this.session.id}&type=${this.session.type}`);
+                    if (!response.ok) {
+                        this.console.addLine(`\u001b[31mCould not fetch initial session status.\u001b[0m`);
+                        return;
+                    }
+                    const data = await response.json();
+                    
+                    this.session.context = {
+                        branch: data.gmodbranch || this.session.type,
+                        gameVersion: data.gameversion || 'N/A',
+                        containerTag: data.containertag || 'N/A',
+                    };
+                    this.updateStatusWidget(data);
+
+                 } catch(error) {
+                     this.console.addLine(`\u001b[31mError fetching initial status: ${error.message}\u001b[0m`);
+                 }
+            }
+
+            updateStatusWidget(data) {
+                this.ui.cpuUsageLabel.textContent = `${data.cpuusage || 0}%`;
+                this.ui.cpuUsageBar.style.width = `${data.cpuusage || 0}%`;
+                this.ui.diskUsageLabel.textContent = `${data.diskusage || 0}%`;
+                this.ui.diskUsageBar.style.width = `${data.diskusage || 0}%`;
+
+                this.ui.contextBranch.textContent = this.session.context.branch || '...';
+                this.ui.contextGameVersion.textContent = this.session.context.gameVersion || '...';
+                this.ui.contextContainerTag.textContent = this.session.context.containerTag || '...';
+            }
+
             startLogPolling() {
                 if (this.logPollIntervalId) clearInterval(this.logPollIntervalId);
-                
                 const poll = async () => {
                     if (!this.session.id) return;
                     try {
@@ -206,24 +325,36 @@
                         if (!response.ok) {
                             if (response.status >= 400 && response.status < 500) {
                                 this.console.addLine(`\u001b[31mSession polling failed: ${response.statusText}. Please refresh.\u001b[0m`);
-                                this.stopLogPolling();
-                            }
-                            return;
+                                this.stopPolling();
+                            } return;
                         }
                         const text = await response.text();
                         if (text) this.console.addLines(text.trimEnd().split('\n'));
-                    } catch (error) {
-                        console.error("Polling error:", error);
-                        this.console.addLine(`\u001b[91mNetwork error while polling logs.\u001b[0m`);
-                    }
+                    } catch (error) { this.console.addLine(`\u001b[91mNetwork error while polling logs.\u001b[0m`); }
                 };
-                
                 this.logPollIntervalId = setInterval(poll, 2500);
             }
 
-            stopLogPolling() {
+            startStatsPolling() {
+                if (this.statsPollIntervalId) clearInterval(this.statsPollIntervalId);
+                const poll = async () => {
+                    if (!this.session.id) return;
+                    try {
+                        const response = await fetch(`/api/health?session=${this.session.id}&type=${this.session.type}`);
+                        if (response.ok) {
+                            const data = await response.json();
+                            this.updateStatusWidget(data);
+                        }
+                    } catch (error) { console.warn("Stats poll failed:", error); }
+                };
+                this.statsPollIntervalId = setInterval(poll, 5000);
+            }
+
+            stopPolling() {
                 clearInterval(this.logPollIntervalId);
+                clearInterval(this.statsPollIntervalId);
                 this.logPollIntervalId = null;
+                this.statsPollIntervalId = null;
                 this.ui.commandInput.disabled = true;
             }
 
@@ -237,9 +368,7 @@
                         this.console.addLines(text.trimEnd().split('\n'));
                         this.console.addLine("\u001b[90m--- End of stored history --- \u001b[0m");
                      }
-                } catch(error) {
-                    this.console.addLine(`\u001b[31mError fetching history: ${error.message}\u001b[0m`);
-                }
+                } catch(error) { this.console.addLine(`\u001b[31mError fetching history: ${error.message}\u001b[0m`); }
             }
             
             async sendCommand(command) {
@@ -247,28 +376,7 @@
                 this.console.addLine(`\u001b[92m> ${command}\u001b[0m`);
                 try {
                     await fetch(`/api/command?session=${this.session.id}&type=${this.session.type}`, { method: "POST", headers: { "Content-Type": "text/plain" }, body: command });
-                } catch (error) {
-                    this.console.addLine(`\u001b[31mFailed to send command: ${error.message}\u001b[0m`);
-                }
-            }
-        }
-
-        class CommandHandler {
-            constructor(inputId, console, commandCallback) {
-                this.input = document.getElementById(inputId); this.history = []; this.historyIndex = -1; this.commandCallback = commandCallback;
-                this.input.addEventListener("keydown", (e) => {
-                    if (e.key === "Enter" && this.input.value.trim() !== "") {
-                        const command = this.input.value; this.history.unshift(command);
-                        if (this.history.length > 50) this.history.pop();
-                        this.commandCallback(command); this.input.value = ""; this.historyIndex = -1;
-                    } else if (e.key === "ArrowUp") {
-                        e.preventDefault();
-                        if (this.history.length > 0 && this.historyIndex < this.history.length - 1) { this.historyIndex++; this.input.value = this.history[this.historyIndex]; }
-                    } else if (e.key === "ArrowDown") {
-                         e.preventDefault();
-                         if (this.historyIndex > 0) { this.historyIndex--; this.input.value = this.history[this.historyIndex]; } else { this.historyIndex = -1; this.input.value = ""; }
-                    }
-                });
+                } catch (error) { this.console.addLine(`\u001b[31mFailed to send command: ${error.message}\u001b[0m`); }
             }
         }
 
