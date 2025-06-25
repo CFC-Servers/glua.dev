@@ -2,10 +2,10 @@ import { Container } from "@cloudflare/containers";
 
 // Define the interface for environment variables and bindings from wrangler.toml
 export interface Env {
-  GmodPublic: any;
-  GmodSixtyFour: any;
-  GmodPrerelease: any;
-  GmodDev: any;
+  GMOD_PUBLIC: any;
+  GMOD_SIXTYFOUR: any;
+  GMOD_PRERELEASE: any;
+  GMOD_DEV: any;
   LOG_BUCKET: R2Bucket;
 }
 
@@ -20,9 +20,9 @@ export class GmodDev extends BaseRunner {}
 
 const getContainer = (env: Env, sessionId: string): BaseRunner => {
   console.log(`Fetching container for session ID: ${sessionId}`);
-  const id = env.GmodPublic.idFromName(sessionId)
+  const id = env.GMOD_PUBLIC.idFromName(sessionId)
   console.log(`Container ID: ${id}`);
-  const container = env.GmodPublic.get(id)
+  const container = env.GMOD_PUBLIC.get(id)
   console.log(`Container fetched: ${container}`);
 
   if (!container) {

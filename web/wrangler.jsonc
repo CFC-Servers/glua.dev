@@ -1,4 +1,4 @@
- {
+{
     "$schema": "node_modules/wrangler/config-schema.json",
     "name": "glua-dev",
     "main": "src/index.ts",
@@ -40,5 +40,14 @@
             "class_name": "GmodDev",
             "image": "ghcr.io/cfc-servers/glua.dev/dev:latest"
         }
-    ]
- }
+    ],
+    "durable_objects": {
+        "bindings": [
+            { "name": "GMOD_PUBLIC", "class_name": "GmodPublic" },
+            { "name": "GMOD_SIXTYFOUR", "class_name": "GmodSixtyFour" },
+            { "name": "GMOD_PRERELEASE", "class_name": "GmodPrerelease" },
+            { "name": "GMOD_DEV", "class_name": "GmodDev" }
+        ]
+    }
+
+}
