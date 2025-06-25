@@ -141,7 +141,7 @@ const handleStartSession = async (env: Env, branch: string | null): Promise<Resp
  */
 const handleGetLogs = async (env: Env, sessionId: string, branch: string): Promise<Response> => {
   const containerInstance = findContainer(env, sessionId, branch)
-  const containerRequest = createRequest("get-output", "GET")
+  const containerRequest = createRequest("get-output.sh", "GET")
   const containerResponse = await containerInstance.containerFetch(containerRequest)
 
   if (!containerResponse.ok) {
@@ -189,7 +189,7 @@ const handleSendCommand = async (request: Request, env: Env, sessionId: string, 
   }
 
   const container = findContainer(env, sessionId, branch);
-  const containerRequest = createRequest("command", "POST", command)
+  const containerRequest = createRequest("send-command.sh", "POST", command)
 
   const containerResponse = await container.containerFetch(containerRequest)
   return new Response(null, { status: containerResponse.status })
