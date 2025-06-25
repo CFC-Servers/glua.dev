@@ -1,11 +1,14 @@
 slim build \
     --target glua-dev:latest \
-    --http-probe-off \
-    --continue-after 10 \
+    --continue-after 30 \
     --show-clogs --show-blogs \
     --include-bin "/usr/bin/date" \
     --include-bin "/usr/bin/echo" \
     --include-bin "/usr/bin/cp" \
-    --include-bin "/home/steam/gmodserver/bin/libbass.so" \
-    --include-bin "/home/steam/gmodserver/bin/linux64/libbass.so" \
-    --tag glua-dev-slim:latest \
+    --include-bin "/usr/bin/screen" \
+    --include-path "/www" \
+    --include-shell \
+    --expose 8080 \
+    --http-probe-cmd /cgi-bin/get-output.sh \
+    --http-probe-cmd post:/cgi-bin/send-command.sh \
+    --tag glua-dev-slim:latest

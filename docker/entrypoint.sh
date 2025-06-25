@@ -1,10 +1,5 @@
 #!/bin/bash
 
-set -e
-
-# Enable core dumps
-ulimit -c unlimited
-
 home=/home/steam
 gmodroot=$home/gmodserver
 server=$home/gmodserver/garrysmod
@@ -54,10 +49,12 @@ base_srcds_args=(
 
     # Game setup
     -game garrysmod
+    -ip 127.0.0.1
+    -port 27015
+    +clientport 27005
     +gamemode "$gamemode"
     +host_workshop_collection "$collection"
     +map "$map"
-    
     +servercfgfile test.cfg
 )
 srcds_args="$EXTRA_STARTUP_ARGS ${base_srcds_args[@]}"
@@ -67,8 +64,10 @@ if [ "$gmodbranch" = "x86-64" ]; then
     screen -dmS gmod "$gmodroot"/srcds_run_x64 "$srcds_args" < "$FIFO_IN" &
 else
     echo "Starting 32-bit server"
-    screen -L -Logfile "$server/console.log" -dmS gmod env TERM=xterm-256color "$gmodroot"/srcds_run "${srcds_args[@]}"
+    screen -L -Logfile "$server/console.log" -dmS gmod "$gmodroot"/srcds_run "${srcds_args[@]}"
     #screen -S gmod -X colon "logfile flush 0^M"
 fi
+
+tail -F "$server/console.log" &
 
 exec busybox httpd -f -p 8080 -h /www
