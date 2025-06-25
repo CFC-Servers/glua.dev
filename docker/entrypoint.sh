@@ -59,15 +59,21 @@ base_srcds_args=(
 )
 srcds_args="$EXTRA_STARTUP_ARGS ${base_srcds_args[@]}"
 
+# Start command server
+exec busybox httpd -f -p 8080 -h /www &
+
+# Start game server
 if [ "$gmodbranch" = "x86-64" ]; then
     echo "Starting 64-bit server"
-    screen -dmS gmod "$gmodroot"/srcds_run_x64 "$srcds_args" < "$FIFO_IN" &
+    screen -L -Logfile "$server/console.log" -dmS gmod "$gmodroot"/srcds_run_x64 "${srcds_args[@]}"
 else
     echo "Starting 32-bit server"
     screen -L -Logfile "$server/console.log" -dmS gmod "$gmodroot"/srcds_run "${srcds_args[@]}"
-    #screen -S gmod -X colon "logfile flush 0^M"
 fi
 
-tail -F "$server/console.log" &
+# Wait for the server to stop, which closes the screen
+while screen -ls | grep -q "gmod"; do
+    sleep 1
+done
 
-exec busybox httpd -f -p 8080 -h /www
+echo "Server has stopped - exiting"

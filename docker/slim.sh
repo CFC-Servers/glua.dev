@@ -1,6 +1,6 @@
 slim build \
     --target glua-dev:latest \
-    --continue-after 30 \
+    --continue-after 15 \
     --show-clogs --show-blogs \
     --include-bin "/usr/bin/date" \
     --include-bin "/usr/bin/echo" \
