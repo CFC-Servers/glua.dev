@@ -50,7 +50,7 @@ RUN chown --recursive steam:steam \
 USER steam
 RUN mkdir -v "$home/metadata" && \
     echo "${GAME_VERSION}" > "$home/metadata/game_version.txt" && \
-    echo "${GMOD_BRANCH}" > "$home/metadata/branch.txt" && \
+    echo "${GMOD_BRANCH}" > "$home/metadata/game_branch.txt" && \
     echo "${GLUA_DEV_TAG}" > "$home/metadata/container_tag.txt"
 
 ENV GMOD_BRANCH=${GMOD_BRANCH}
