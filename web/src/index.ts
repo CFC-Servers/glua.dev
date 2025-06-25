@@ -1,11 +1,11 @@
-import { Container } from "@cloudflare/containers";
+import { getContainer, Container } from "@cloudflare/containers";
 
 // Define the interface for environment variables and bindings from wrangler.toml
 export interface Env {
-  GMOD_PUBLIC: any;
-  GMOD_SIXTYFOUR: any;
-  GMOD_PRERELEASE: any;
-  GMOD_DEV: any;
+  GMOD_PUBLIC: Container;
+  GMOD_SIXTYFOUR: Container;
+  GMOD_PRERELEASE: Container;
+  GMOD_DEV: Container;
   LOG_BUCKET: R2Bucket;
 }
 
@@ -18,11 +18,40 @@ export class GmodSixtyFour extends BaseRunner {}
 export class GmodPrerelease extends BaseRunner {}
 export class GmodDev extends BaseRunner {}
 
-const getContainer = (env: Env, sessionId: string): BaseRunner => {
-  console.log(`Fetching container for session ID: ${sessionId}`);
-  const id = env.GMOD_PUBLIC.idFromName(sessionId)
-  console.log(`Container ID: ${id}`);
-  const container = env.GMOD_PUBLIC.get(id)
+const verifySessionId = (sessionId: string | null): void => {
+  if (!sessionId || sessionId.length !== 36) {
+    throw new Error("Invalid session ID. It must be a valid UUID.");
+  }
+}
+
+const verifyBranch = (branch: string | null): void => {
+  const validBranches = ["public", "sixty-four", "prerelease", "dev"];
+  if (!branch || !validBranches.includes(branch)) {
+    throw new Error(`Invalid branch type. Must be one of: ${validBranches.join(", ")}`);
+  }
+}
+
+const findContainer = (env: Env, sessionId: string, branch: string): DurableObjectStub<Container> => {
+  let containerType: any;
+  switch (branch) {
+    case "public":
+      containerType = env.GMOD_PUBLIC
+      break;
+    case "sixty-four":
+      containerType = env.GMOD_SIXTYFOUR
+      break;
+    case "prerelease":
+      containerType = env.GMOD_PRERELEASE
+      break;
+    case "dev":
+      containerType = env.GMOD_DEV
+      break;
+    default:
+      containerType = env.GMOD_PUBLIC;
+  }
+
+  console.log(`Fetching container for session ID: ${sessionId}, branch: ${branch}`);
+  const container = getContainer(containerType, sessionId);
   console.log(`Container fetched: ${container}`);
 
   if (!container) {
@@ -45,21 +74,34 @@ const createRequest = (endpoint: string, method: string = "GET", body?: string):
 const handleApiRequest = async (request: Request, env: Env): Promise<Response> => {
   const { pathname } = new URL(request.url);
 
+  const { searchParams } = new URL(request.url);
+  const sessionId = searchParams.get("session");
+  const branch = searchParams.get("type");
+
+
   try {
     if (pathname === "/api/start" && request.method === "POST") {
-      return await handleStartSession();
+      return await handleStartSession(env, branch);
     }
     if (pathname === "/api/logs" && request.method === "GET") {
-      return await handleGetLogs(request, env);
+      verifyBranch(branch);
+      verifySessionId(sessionId);
+      return await handleGetLogs(env, sessionId!, branch!);
     }
     if (pathname === "/api/history" && request.method === "GET") {
-      return await handleGetHistory(request, env);
+      verifySessionId(sessionId);
+      return await handleGetHistory(env, sessionId!);
     }
     if (pathname === "/api/command" && request.method === "POST") {
-      return await handleSendCommand(request, env);
+      verifyBranch(branch);
+      verifySessionId(sessionId);
+      return await handleSendCommand(request, env, sessionId!, branch!);
     }
     if (pathname === "/api/health" && request.method === "GET") {
-      return await handleHealthCheck(request, env);
+      console.log("Health check endpoint hit");
+      verifyBranch(branch);
+      verifySessionId(sessionId);
+      return await handleHealthCheck(env, sessionId!, branch!);
     }
 
     return new Response("Not Found", { status: 404 });
@@ -78,8 +120,19 @@ const handleApiRequest = async (request: Request, env: Env): Promise<Response> =
  * Creates a new session ID. The container itself is spun up lazily
  * by Cloudflare on the first request that uses this ID.
  */
-const handleStartSession = async (): Promise<Response> => {
+const handleStartSession = async (env: Env, branch: string | null): Promise<Response> => {
+  if (!branch) {
+    return new Response("Branch type is required", { status: 400 });
+  }
+
   const sessionId = crypto.randomUUID();
+  const container = findContainer(env, sessionId, branch);
+
+  await container.startAndWaitForPorts(8080, {
+    "instanceGetTimeoutMS": 60000,
+    "portReadyTimeoutMS": 20000
+  })
+
   return new Response(JSON.stringify({ sessionId }), {
     headers: { "Content-Type": "application/json" },
   });
@@ -89,15 +142,8 @@ const handleStartSession = async (): Promise<Response> => {
  * Fetches the latest logs from a container, appends them to R2 storage,
  * and returns only the new logs to the client
  */
-const handleGetLogs = async (request: Request, env: Env): Promise<Response> => {
-  const { searchParams } = new URL(request.url);
-  const sessionId = searchParams.get("session");
-
-  if (!sessionId) {
-    return new Response("Session is required", { status: 400 })
-  }
-
-  const containerInstance = getContainer(env, sessionId)
+const handleGetLogs = async (env: Env, sessionId: string, branch: string): Promise<Response> => {
+  const containerInstance = findContainer(env, sessionId, branch)
   const containerRequest = createRequest("get-output", "GET")
   const containerResponse = await containerInstance.fetch(containerRequest)
 
@@ -125,14 +171,7 @@ const handleGetLogs = async (request: Request, env: Env): Promise<Response> => {
 /**
  * Retrieves the entire log history for a session from R2
  */
-const handleGetHistory = async (request: Request, env: Env): Promise<Response> => {
-  const { searchParams } = new URL(request.url);
-  const sessionId = searchParams.get("session");
-
-  if (!sessionId) {
-    return new Response("Session is required", { status: 400 });
-  }
-
+const handleGetHistory = async (env: Env, sessionId: string): Promise<Response> => {
   const logKey = `logs/${sessionId}.log`;
   const logObject = await env.LOG_BUCKET.get(logKey);
 
@@ -146,35 +185,21 @@ const handleGetHistory = async (request: Request, env: Env): Promise<Response> =
 /**
  * Forwards a command from the client to the specified container
  */
-const handleSendCommand = async (request: Request, env: Env): Promise<Response> => {
-  const { searchParams } = new URL(request.url)
-  const sessionId = searchParams.get("session")
-
-  if (!sessionId) {
-    return new Response("Session is required", { status: 400 })
-  }
-
+const handleSendCommand = async (request: Request, env: Env, sessionId: string, branch: string): Promise<Response> => {
   const command = await request.text();
   if (!command) {
     return new Response("Request body with command is required.", { status: 400 })
   }
 
-  const container = getContainer(env, sessionId)
+  const container = findContainer(env, sessionId, branch);
   const containerRequest = createRequest("command", "POST", command)
 
   const containerResponse = await container.fetch(containerRequest)
   return new Response(null, { status: containerResponse.status })
 };
 
-const handleHealthCheck = async (request: Request, env: Env): Promise<Response> => {
-  const { searchParams } = new URL(request.url);
-  const sessionId = searchParams.get("session");
-
-  if (!sessionId) {
-    return new Response("Session is required", { status: 400 });
-  }
-
-  const container = getContainer(env, sessionId);
+const handleHealthCheck = async (env: Env, sessionId: string, branch: string): Promise<Response> => {
+  const container = findContainer(env, sessionId, branch);
   const containerRequest = createRequest("healthcheck.sh");
 
   const containerResponse = await container.fetch(containerRequest);

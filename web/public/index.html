@@ -9,25 +9,44 @@
     <style>
         body {
             font-family: 'Fira Code', monospace;
-            background-color: #111827; /* bg-gray-900 */
+            background-color: #111827;
         }
         ::-webkit-scrollbar { width: 8px; }
-        ::-webkit-scrollbar-track { background: #1F2937; /* bg-gray-800 */ }
-        ::-webkit-scrollbar-thumb { background: #4B5563; /* bg-gray-600 */ border-radius: 4px; }
-        ::-webkit-scrollbar-thumb:hover { background: #6B7280; /* bg-gray-500 */ }
+        ::-webkit-scrollbar-track { background: #1F2937; }
+        ::-webkit-scrollbar-thumb { background: #4B5563; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #6B7280; }
         .console-output-line { white-space: pre-wrap; word-break: break-all; }
         #start-modal-backdrop.hidden, #console-container.hidden { display: none; }
+        select {
+            background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%239ca3af' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e");
+            background-position: right 0.5rem center;
+            background-repeat: no-repeat;
+            background-size: 1.5em 1.5em;
+            padding-right: 2.5rem;
+            -webkit-appearance: none;
+            -moz-appearance: none;
+            appearance: none;
+        }
     </style>
 </head>
 <body class="text-gray-200 antialiased">
 
     <!-- Start Session Modal -->
     <div id="start-modal-backdrop" class="fixed inset-0 bg-gray-900 bg-opacity-80 flex items-center justify-center z-50 transition-opacity duration-300">
-        <div class="bg-gray-800 p-8 rounded-lg shadow-2xl text-center transform scale-95 transition-transform duration-300 w-full max-w-md">
+        <div class="bg-gray-800 p-8 rounded-lg shadow-2xl transform scale-95 transition-transform duration-300 w-full max-w-md">
             <!-- Initial State -->
             <div id="modal-initial-state">
                 <h2 class="text-2xl font-bold mb-4 text-white">Start New Console Session</h2>
-                <p class="text-gray-400 mb-6">This will spin up a new container instance on demand.</p>
+                <p class="text-gray-400 mb-6">Select a container type and press Start to spin up a new instance</p>
+                <div class="mb-6">
+                    <label for="container-type-select" class="block text-sm font-medium text-gray-300 mb-2 text-left">GMod Branch</label>
+                    <select id="container-type-select" class="block w-full bg-gray-700 border border-gray-600 text-white rounded-md p-3 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                        <option value="public">Public</option>
+                        <option value="sixty-four">64-bit</option>
+                        <option value="prerelease">Prerelease</option>
+                        <option value="dev">Dev</option>
+                    </select>
+                </div>
                 <button id="start-session-button" class="bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-3 px-8 rounded-lg transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-indigo-400 disabled:bg-gray-500 disabled:cursor-wait">
                     Start
                 </button>
@@ -46,20 +65,10 @@
 
     <!-- Main Console UI -->
     <div id="console-container" class="hidden fixed inset-0 flex flex-col p-4 bg-gray-900">
-        <div id="output-container" class="flex-grow overflow-y-auto overflow-x-hidden">
-            <!-- Lines will be dynamically inserted here -->
-        </div>
+        <div id="output-container" class="flex-grow overflow-y-auto overflow-x-hidden"></div>
         <div class="mt-4 flex items-center border-t border-gray-700 pt-3">
             <span class="text-green-400 mr-2 shrink-0">&gt;</span>
-            <input 
-                type="text" 
-                id="command-input" 
-                class="w-full bg-transparent border-none focus:ring-0 text-gray-200 placeholder-gray-500"
-                placeholder="Enter command..."
-                autocomplete="off"
-                autofocus
-                disabled
-            >
+            <input type="text" id="command-input" class="w-full bg-transparent border-none focus:ring-0 text-gray-200 placeholder-gray-500" placeholder="Enter command..." autocomplete="off" autofocus disabled>
         </div>
     </div>
 
@@ -80,7 +89,7 @@
 
         class AppController {
             constructor() {
-                this.sessionId = null;
+                this.session = { id: null, type: null };
                 this.logPollIntervalId = null;
                 this.console = new VirtualConsole("output-container");
                 this.commandHandler = new CommandHandler("command-input", this.console, this.sendCommand.bind(this));
@@ -88,6 +97,7 @@
                     modal: document.getElementById("start-modal-backdrop"), 
                     modalInitialState: document.getElementById("modal-initial-state"),
                     modalLoadingState: document.getElementById("modal-loading-state"),
+                    containerTypeSelect: document.getElementById("container-type-select"),
                     startButton: document.getElementById("start-session-button"), 
                     consoleContainer: document.getElementById("console-container"), 
                     commandInput: document.getElementById("command-input") 
@@ -96,17 +106,20 @@
             }
 
             init() {
-                const sessionIdFromUrl = new URLSearchParams(window.location.search).get("session");
-                if (sessionIdFromUrl) {
-                    this.resumeSession(sessionIdFromUrl);
+                const params = new URLSearchParams(window.location.search);
+                const sessionId = params.get("session");
+                const sessionType = params.get("type");
+
+                if (sessionId && sessionType) {
+                    this.resumeSession(sessionId, sessionType);
                 } else {
                     this.ui.modal.classList.remove("hidden");
                     this.ui.modal.querySelector("div").classList.remove("scale-95");
                 }
             }
             
-            async startSession(sessionId) {
-                this.sessionId = sessionId;
+            async startSession(sessionId, sessionType) {
+                this.session = { id: sessionId, type: sessionType };
                 this.updateUrl();
                 this.ui.modal.classList.add("hidden");
                 this.ui.consoleContainer.classList.remove("hidden");
@@ -115,22 +128,24 @@
                 this.startLogPolling();
             }
 
-            async resumeSession(sessionId) {
-                this.console.addLine("\u001b[33mRestoring session...\u001b[0m");
-                await this.fetchHistory(sessionId);
-                await this.startSession(sessionId);
+            async resumeSession(sessionId, sessionType) {
+                this.console.addLine(`\u001b[33mRestoring session (${sessionType})...\u001b[0m`);
+                await this.fetchHistory();
+                await this.startSession(sessionId, sessionType);
             }
 
             async startNewSession() {
                 this.ui.modalInitialState.classList.add("hidden");
                 this.ui.modalLoadingState.classList.remove("hidden");
                 
+                const sessionType = this.ui.containerTypeSelect.value;
+
                 try {
-                    const response = await fetch("/api/start", { method: "POST" });
+                    const response = await fetch(`/api/start?type=${sessionType}`, { method: "POST" });
                     if (!response.ok) throw new Error(`Server error: ${response.statusText}`);
                     const { sessionId } = await response.json();
                     this.console.addLine(`\u001b[90mSession ID created: ${sessionId}\u001b[0m`);
-                    this.beginHealthCheck(sessionId);
+                    this.beginHealthCheck(sessionId, sessionType);
                 } catch (error) {
                     this.console.addLine(`\u001b[31mError starting session: ${error.message}\u001b[0m`);
                     this.ui.modalInitialState.classList.remove("hidden");
@@ -138,49 +153,56 @@
                 }
             }
             
-            beginHealthCheck(sessionId) {
+            beginHealthCheck(sessionId, sessionType) {
                 let attempts = 0;
-                const maxAttempts = 30; // 30 attempts * 2s = 60s timeout
-                
-                this.console.addLine("\u001b[33mPinging container for readiness...\u001b[0m");
+                const maxAttempts = 30;
+                const pollDelay = 2000;
 
-                const healthCheckInterval = setInterval(async () => {
+                this.console.addLine(`\u001b[33mPinging container (${sessionType}) for readiness...\u001b[0m`);
+
+                const poll = async () => {
                     if (attempts >= maxAttempts) {
-                        clearInterval(healthCheckInterval);
-                        this.console.addLine(`\u001b[31mContainer failed to respond after ${maxAttempts * 2} seconds. Please try again.\u001b[0m`);
+                        this.console.addLine(`\u001b[31mContainer failed to respond after ${maxAttempts * (pollDelay/1000)} seconds. Please try again.\u001b[0m`);
                         this.ui.modalInitialState.classList.remove("hidden");
                         this.ui.modalLoadingState.classList.add("hidden");
                         return;
                     }
-                    
+
                     attempts++;
                     try {
-                        const response = await fetch(`/api/health?session=${sessionId}`);
+                        const response = await fetch(`/api/health?session=${sessionId}&type=${sessionType}`);
                         if (response.ok) {
-                            clearInterval(healthCheckInterval);
                             this.console.addLine("\u001b[32mContainer is ready. Connecting...\u001b[0m");
-                            await this.startSession(sessionId);
+                            await this.startSession(sessionId, sessionType);
+                            return;
                         }
                     } catch (error) {
-                        // Network errors will just let the poller try again
-                        console.warn(`Health check attempt ${attempts} failed, retrying...`);
+                        console.warn(`Health check attempt ${attempts} failed, will retry...`);
                     }
-                }, 2000);
+
+                    // If not successful, schedule the next poll.
+                    setTimeout(poll, pollDelay);
+                };
+
+                // Start the first poll
+                poll();
             }
 
             updateUrl() {
+                if (!this.session.id || !this.session.type) return;
                 const url = new URL(window.location.href);
-                url.searchParams.set("session", this.sessionId);
-                window.history.pushState({ sessionId: this.sessionId }, "", url.toString());
+                url.searchParams.set("session", this.session.id);
+                url.searchParams.set("type", this.session.type);
+                window.history.pushState({ ...this.session }, "", url.toString());
             }
 
             startLogPolling() {
                 if (this.logPollIntervalId) clearInterval(this.logPollIntervalId);
                 
                 const poll = async () => {
-                    if (!this.sessionId) return;
+                    if (!this.session.id) return;
                     try {
-                        const response = await fetch(`/api/logs?session=${this.sessionId}`);
+                        const response = await fetch(`/api/logs?session=${this.session.id}&type=${this.session.type}`);
                         if (!response.ok) {
                             if (response.status >= 400 && response.status < 500) {
                                 this.console.addLine(`\u001b[31mSession polling failed: ${response.statusText}. Please refresh.\u001b[0m`);
@@ -205,9 +227,10 @@
                 this.ui.commandInput.disabled = true;
             }
 
-            async fetchHistory(sessionId) {
+            async fetchHistory() {
+                 if (!this.session.id) return;
                  try {
-                     const response = await fetch(`/api/history?session=${sessionId}`);
+                     const response = await fetch(`/api/history?session=${this.session.id}`);
                      if (!response.ok) throw new Error(`Could not fetch session history: ${response.statusText}`);
                      const text = await response.text();
                      if (text) {
@@ -220,10 +243,10 @@
             }
             
             async sendCommand(command) {
-                if (!this.sessionId) return;
+                if (!this.session.id) return;
                 this.console.addLine(`\u001b[92m> ${command}\u001b[0m`);
                 try {
-                    await fetch(`/api/command?session=${this.sessionId}`, { method: "POST", headers: { "Content-Type": "text/plain" }, body: command });
+                    await fetch(`/api/command?session=${this.session.id}&type=${this.session.type}`, { method: "POST", headers: { "Content-Type": "text/plain" }, body: command });
                 } catch (error) {
                     this.console.addLine(`\u001b[31mFailed to send command: ${error.message}\u001b[0m`);
                 }
@@ -232,33 +255,18 @@
 
         class CommandHandler {
             constructor(inputId, console, commandCallback) {
-                this.input = document.getElementById(inputId);
-                this.history = [];
-                this.historyIndex = -1;
-                this.commandCallback = commandCallback;
+                this.input = document.getElementById(inputId); this.history = []; this.historyIndex = -1; this.commandCallback = commandCallback;
                 this.input.addEventListener("keydown", (e) => {
                     if (e.key === "Enter" && this.input.value.trim() !== "") {
-                        const command = this.input.value;
-                        this.history.unshift(command);
+                        const command = this.input.value; this.history.unshift(command);
                         if (this.history.length > 50) this.history.pop();
-                        this.commandCallback(command);
-                        this.input.value = "";
-                        this.historyIndex = -1;
+                        this.commandCallback(command); this.input.value = ""; this.historyIndex = -1;
                     } else if (e.key === "ArrowUp") {
                         e.preventDefault();
-                        if (this.history.length > 0 && this.historyIndex < this.history.length - 1) {
-                            this.historyIndex++;
-                            this.input.value = this.history[this.historyIndex];
-                        }
+                        if (this.history.length > 0 && this.historyIndex < this.history.length - 1) { this.historyIndex++; this.input.value = this.history[this.historyIndex]; }
                     } else if (e.key === "ArrowDown") {
                          e.preventDefault();
-                         if (this.historyIndex > 0) {
-                            this.historyIndex--;
-                            this.input.value = this.history[this.historyIndex];
-                        } else {
-                            this.historyIndex = -1;
-                            this.input.value = "";
-                        }
+                         if (this.historyIndex > 0) { this.historyIndex--; this.input.value = this.history[this.historyIndex]; } else { this.historyIndex = -1; this.input.value = ""; }
                     }
                 });
             }

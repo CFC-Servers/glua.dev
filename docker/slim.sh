@@ -9,6 +9,7 @@ slim build \
     --include-path "/www" \
     --include-shell \
     --expose 8080 \
+    --http-probe-cmd /cgi-bin/healthcheck.sh \
     --http-probe-cmd /cgi-bin/get-output.sh \
     --http-probe-cmd post:/cgi-bin/send-command.sh \
     --tag glua-dev-slim:latest

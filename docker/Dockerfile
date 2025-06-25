@@ -49,4 +49,5 @@ USER steam
 
 ENV GMOD_BRANCH=${GMOD_BRANCH}
 
+EXPOSE 8080
 ENTRYPOINT ["/entrypoint.sh"]

@@ -113,3 +113,25 @@ runs:
 
         docker push "$BASE" --all-tags
 
+    - name: Push to Cloudflare Container Registry
+      shell: bash
+      env:
+        CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_CONTAINERS_KEY }}
+        CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      run: |
+        if [ "${{ inputs.gmod_branch }}" = "x86-64" ]; then
+          docker tag "ghcr.io/cfc-servers/glua.dev/64bit:latest" "glua.dev/64bit:cf"
+          npx wrangler containers push "glua.dev/64bit:cf"
+
+        elif [ "${{ inputs.gmod_branch }}" = "dev" ]; then
+          docker tag "ghcr.io/cfc-servers/glua.dev/dev:latest" "glua.dev/dev:cf"
+          npx wrangler containers push "glua.dev/dev:cf"
+
+        elif [ "${{ inputs.gmod_branch }}" = "prerelease" ]; then
+          docker tag "ghcr.io/cfc-servers/glua.dev/prerelease:latest" "glua.dev/prerelease:cf"
+          npx wrangler containers push "glua.dev/prerelease:cf"
+
+        else
+          docker tag "ghcr.io/cfc-servers/glua.dev:latest" "glua.dev:cf"
+          npx wrangler containers push "glua.dev:cf"
+        fi
