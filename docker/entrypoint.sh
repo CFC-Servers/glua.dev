@@ -10,10 +10,16 @@ collection="${COLLECTION_ID:-0}"
 map="${MAP:-gm_construct}"
 echo "Starting the server with gamemode: $gamemode"
 
+pidfile="gmod.pid"
+
+# Dirs
 mkdir -p "$server/data"
 touch "$server/console.log"
 
-pidfile="gmod.pid"
+# Screen setup
+mkdir -pv "$home/.screen"
+chmod 700 "$home/.screen"
+export SCREENDIR="$home/.screen"
 echo "logfile flush 0" > "$home/.screenrc"
 
 base_srcds_args=(
@@ -74,16 +80,30 @@ else
     screen -L -Logfile "$server/console.log" -dmS gmod "$gmodroot"/srcds_run "${srcds_args[@]}"
 fi
 
-until [ -f "$server/$pidfile" ]; do
-    echo "Waiting for server to start..."
-    sleep 0.25
-done
-pid=$(cat "$server/$pidfile")
+echo ""
+echo ""
+echo "Waiting for server to start..."
+timeout 60s bash -c "until [ -f '$server/$pidfile' ]; do sleep 0.25; done"
+if [ ! -f "$server/$pidfile" ]; then
+    echo "Server did not start in time, exiting"
+    cat "$server/console.log"
+    exit 1
+fi
 
-echo "--- Checking listening ports ---"
+echo "Server started successfully"
+echo "Server PID: $(cat "$server/$pidfile")"
+echo ""
+echo ""
+
+echo "--- Listening on Ports: ---"
 busybox netstat -tuln
 echo "----------------------------"
 
+echo ""
+echo ""
+echo "Server console output:"
+
+pid=$(cat "$server/$pidfile")
 tail \
     --follow=name \
     --retry \
@@ -94,3 +114,4 @@ tail \
     "$server/console.log"
 
 echo "Server has stopped - exiting"
+kill -9 $pid 2>/dev/null
