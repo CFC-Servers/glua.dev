@@ -18,25 +18,25 @@
     "containers": [
         {
             "max_instances": 10,
-            "name": "gmod-public",
+            "name": "glua-dev-gmod-public",
             "class_name": "GmodPublic",
             "image": "ghcr.io/cfc-servers/glua.dev:latest"
         },
         {
             "max_instances": 5,
-            "name": "gmod-sixty-four",
+            "name": "glua-dev-gmod-sixty-four",
             "class_name": "GmodSixtyFour",
             "image": "ghcr.io/cfc-servers/glua.dev/64bit:latest"
         },
         {
             "max_instances": 2,
-            "name": "gmod-prerelease",
+            "name": "glua-dev-gmod-prerelease",
             "class_name": "GmodPrerelease",
             "image": "ghcr.io/cfc-servers/glua.dev/prerelease:latest"
         },
         {
             "max_instances": 2,
-            "name": "gmod-dev",
+            "name": "glua-dev-gmod-dev",
             "class_name": "GmodDev",
             "image": "ghcr.io/cfc-servers/glua.dev/dev:latest"
         }
@@ -52,7 +52,7 @@
     "migrations": [
         {
             "tag": "v1",
-            "new_classes": [
+            "new_sqlite_classes": [
                 "GmodPublic",
                 "GmodSixtyFour",
                 "GmodPrerelease",
