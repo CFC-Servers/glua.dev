@@ -189,6 +189,8 @@ jobs:
           tag_name: ${{ needs.check_updates.outputs.latest_tag }}
           release: true
           github_token: ${{ secrets.GITHUB_TOKEN }}
+          cloudflare_token: ${{ secrets.CLOUDFLARE_CONTAINERS_KEY }}
+          cloudflare_account_id: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           path: $GITHUB_WORKSPACE/full_repo
 
   update_last_versions:
