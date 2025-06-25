@@ -36,6 +36,7 @@ COPY base_server.cfg $server/cfg/test.cfg
 COPY --chmod=755 "entrypoint.sh" "/entrypoint.sh"
 
 RUN mkdir -p /www/cgi-bin
+COPY --chmod=755 "healthcheck.sh" "/www/cgi-bin/healthcheck.sh"
 COPY --chmod=755 "send-command.sh" "/www/cgi-bin/send-command.sh"
 COPY --chmod=755 "get-output.sh" "/www/cgi-bin/get-output.sh"
 COPY --chmod=755 "test.sh" "/www/cgi-bin/test.sh"
