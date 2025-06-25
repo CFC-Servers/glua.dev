@@ -80,6 +80,10 @@ until [ -f "$server/$pidfile" ]; do
 done
 pid=$(cat "$server/$pidfile")
 
+echo "--- Checking listening ports ---"
+busybox netstat -tuln
+echo "----------------------------"
+
 tail \
     --follow=name \
     --retry \
