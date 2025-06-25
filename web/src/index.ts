@@ -9,14 +9,21 @@ export interface Env {
   LOG_BUCKET: R2Bucket;
 }
 
-export class GLuaRunner extends Container {
+export class BaseRunner extends Container {
   defaultPort = 8080;
   sleepAfter = "3m";
 }
+export class GmodPublic extends BaseRunner {}
+export class GmodSixtyFour extends BaseRunner {}
+export class GmodPrerelease extends BaseRunner {}
+export class GmodDev extends BaseRunner {}
 
-const getContainer = (env: Env, sessionId: string): GLuaRunner => {
+const getContainer = (env: Env, sessionId: string): BaseRunner => {
+  console.log(`Fetching container for session ID: ${sessionId}`);
   const id = env.GmodPublic.idFromName(sessionId)
+  console.log(`Container ID: ${id}`);
   const container = env.GmodPublic.get(id)
+  console.log(`Container fetched: ${container}`);
 
   if (!container) {
     throw new Error(`Container with session ID ${sessionId} not found.`)
