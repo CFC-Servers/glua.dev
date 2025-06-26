@@ -4,6 +4,7 @@ home=/home/steam
 gameversion=$(cat $home/metadata/game_version.txt)
 gmodbranch=$(cat $home/metadata/game_branch.txt)
 containertag=$(cat $home/metadata/container_tag.txt)
+closetime=$(cat $home/metadata/container_close_timestamp.txt)
 
 
 get_cpu_usage() {
@@ -78,9 +79,10 @@ cpuusage=$(get_cpu_usage)
 printf "Content-Type: application/json\r\n"
 printf "\r\n"
 printf "{\n"
-printf "  \"diskusage\": %s,\n"    "${diskusage:-0}"
-printf "  \"cpuusage\": %.0f,\n"   "${cpuusage:-0}"
-printf "  \"gameversion\": \"%s\",\n"  "${gameversion:-unknown}"
-printf "  \"gmodbranch\": \"%s\",\n"   "${gmodbranch:-unknown}"
-printf "  \"containertag\": \"%s\"\n" "${containertag:-unknown}"
+printf '  "diskusage": %s,\n'    "${diskusage:-0}"
+printf '  "cpuusage": %.0f,\n'   "${cpuusage:-0}"
+printf '  "gameversion": "%s",\n' "${gameversion:-unknown}"
+printf '  "gmodbranch": "%s",\n'  "${gmodbranch:-unknown}"
+printf '  "closetime": "%s",\n'   "${closetime:-0}"
+printf '  "containertag": "%s"\n' "${containertg:-unknown}"
 printf "}\n"

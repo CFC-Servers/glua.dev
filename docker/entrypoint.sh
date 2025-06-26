@@ -17,7 +17,7 @@ mkdir -p "$server/data"
 touch "$server/console.log"
 
 # Screen setup
-mkdir -pv "$home/.screen"
+mkdir -p "$home/.screen"
 chmod 700 "$home/.screen"
 export SCREENDIR="$home/.screen"
 echo "logfile flush 0" > "$home/.screenrc"
@@ -74,16 +74,16 @@ busybox httpd -f -p 8080 -h /www &
 # Start game server
 if [ "$gmodbranch" = "x86-64" ]; then
     echo "Starting 64-bit server"
-    screen -L -Logfile "$server/console.log" -dmS gmod "$gmodroot"/srcds_run_x64 "${srcds_args[@]}"
+    screen -L -Logfile "$server/console.log" -dmS gmod timeout 6m "$gmodroot"/srcds_run_x64 "${srcds_args[@]}"
 else
     echo "Starting 32-bit server"
-    screen -L -Logfile "$server/console.log" -dmS gmod "$gmodroot"/srcds_run "${srcds_args[@]}"
+    screen -L -Logfile "$server/console.log" -dmS gmod timeout 6m "$gmodroot"/srcds_run "${srcds_args[@]}"
 fi
 
 echo ""
 echo ""
 echo "Waiting for server to start..."
-timeout 60s bash -c "until [ -f '$server/$pidfile' ]; do sleep 0.25; done"
+timeout 1m bash -c "until [ -f '$server/$pidfile' ]; do sleep 0.25; done"
 if [ ! -f "$server/$pidfile" ]; then
     echo "Server did not start in time, exiting"
     cat "$server/console.log"
@@ -92,6 +92,14 @@ fi
 
 echo "Server started successfully"
 echo "Server PID: $(cat "$server/$pidfile")"
+echo ""
+echo ""
+
+END_TIMESTAMP_EPOCH=$(($(date +%s) + 300))
+END_TIMESTAMP_ISO=$(date -u -d "@$END_TIMESTAMP_EPOCH" +"%Y-%m-%dT%H:%M:%SZ")
+echo "Game server will run for 5 minutes, ending at $(date -d "@$END_TIMESTAMP_EPOCH")"
+echo "ISO 8601 close time: $END_TIMESTAMP_ISO"
+echo "$END_TIMESTAMP_ISO" > "$home/metadata/container_close_timestamp.txt"
 echo ""
 echo ""
 
