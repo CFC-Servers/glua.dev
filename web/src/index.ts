@@ -61,10 +61,10 @@ const findContainer = (env: Env, sessionId: string, branch: string): DurableObje
   return container
 }
 
-const createRequest = (endpoint: string, method: string = "GET", body?: string): Request => {
+const createRequest = (endpoint: string, method: string = "GET", body?: string, headers?: HeadersInit): Request => {
   const url = `http://127.0.0.1:8080/cgi-bin/${endpoint}`;
   console.log(`Creating request for endpoint: ${url}, method: ${method}, body: ${body}`);
-  return new Request(url, { method, body });
+  return new Request(url, { method, body, headers });
 }
 
 /**
@@ -188,8 +188,13 @@ const handleSendCommand = async (request: Request, env: Env, sessionId: string, 
     return new Response("Request body with command is required.", { status: 400 })
   }
 
+  const headers = new Headers({
+    "Content-Length": new TextEncoder().encode(command).length.toString(),
+    "Content-Type": "text/plain"
+  });
+
   const container = findContainer(env, sessionId, branch);
-  const containerRequest = createRequest("send-command.sh", "POST", command)
+  const containerRequest = createRequest("send-command.sh", "POST", command, headers)
 
   return container.containerFetch(containerRequest)
 };
