@@ -24,7 +24,23 @@
             padding-right: 2.5rem;
             -webkit-appearance: none; -moz-appearance: none; appearance: none;
         }
-        #status-panel.collapsed .panel-content { max-height: 0px; opacity: 0; padding-top: 0; padding-bottom: 0; margin-top: 0; }
+        
+        /* -- Status Panel Animation -- */
+        #status-panel .panel-content {
+            /* This is the EXPANDED state. It's the default. */
+            max-height: 500px; /* A value larger than the content will ever be */
+            opacity: 1;
+            transition: max-height 0.3s ease-in-out, opacity 0.2s linear, padding 0.3s ease-in-out, margin 0.3s ease-in-out;
+        }
+        #status-panel.collapsed .panel-content {
+            /* This is the COLLAPSED state. It overrides the default when the class is present. */
+            max-height: 0px;
+            opacity: 0;
+            padding-top: 0;
+            padding-bottom: 0;
+            margin-top: 0;
+            overflow: hidden;
+        }
         #status-panel .toggle-icon { transition: transform 0.3s ease; }
         #status-panel.collapsed .toggle-icon { transform: rotate(180deg); }
     </style>
@@ -59,13 +75,14 @@
     <!-- Main Console UI -->
     <div id="console-container" class="hidden fixed inset-0 flex flex-col p-4 bg-gray-900">
         <!-- STATUS WIDGET -->
-        <div id="status-panel" class="collapsed absolute top-4 right-4 z-20 w-72">
+        <div id="status-panel" class="absolute top-4 right-4 z-20 w-72">
             <div class="bg-gray-800 rounded-lg shadow-lg border border-gray-700/50">
                 <button id="status-toggle-button" class="w-full flex justify-between items-center p-3 text-left focus:outline-none">
                     <span class="font-bold text-sm text-white">Session Status</span>
                     <svg class="toggle-icon w-5 h-5 text-gray-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" /></svg>
                 </button>
-                <div class="panel-content overflow-hidden transition-all duration-300 ease-in-out max-h-0 opacity-0">
+                <!-- NOTE: Removed max-h-0 and opacity-0 classes. Control is now in the CSS <style> block. -->
+                <div class="panel-content">
                     <div class="px-4 pb-4 space-y-4">
                         <div>
                             <div class="flex justify-between items-baseline mb-1">
@@ -127,7 +144,6 @@
             createLineElement(text) {
                 const lineDiv = document.createElement('div');
                 lineDiv.className = 'console-output-line';
-                // Convert ANSI to styled HTML and set it directly
                 lineDiv.innerHTML = this.ansiUp.ansi_to_html(text);
                 return lineDiv;
             }
@@ -204,20 +220,14 @@
             }
             
             async resumeSession(sessionId, sessionType) {
-                // Set session details immediately so other functions can use them
                 this.session.id = sessionId;
                 this.session.type = sessionType;
-
-                // Immediately hide the modal and show the console
                 this.ui.modal.classList.add("hidden");
                 this.ui.consoleContainer.classList.remove("hidden");
                 
                 this.console.addLine(`\u001b[33mRestoring session (${sessionType})...\u001b[0m`);
-
-                // Fetch and display the entire log history
                 await this.fetchHistory();
                 
-                // Now that history is loaded, finish setting up the live session
                 this.updateUrl();
                 this.ui.commandInput.disabled = false;
                 this.ui.commandInput.focus();
@@ -292,13 +302,11 @@
                         return;
                     }
                     const data = await response.json();
-                    this.console.addLine(`\u001b[90mInitial status fetched successfully.\u001b[0m`);
                     
                     this.session.context = {
                         branch: data.gmodbranch || this.session.type,
                         gameVersion: data.gameversion || 'N/A',
                         containerTag: data.containertag || 'N/A',
-                        closetime: data.closetime || null,
                     };
                     this.updateStatusWidget(data);
 
@@ -316,7 +324,6 @@
                 this.ui.contextBranch.textContent = this.session.context.branch || '...';
                 this.ui.contextGameVersion.textContent = this.session.context.gameVersion || '...';
                 this.ui.contextContainerTag.textContent = this.session.context.containerTag || '...';
-                console.log(this.ui)
             }
 
             startLogPolling() {
@@ -324,36 +331,29 @@
                     clearTimeout(this.logPollIntervalId);
                     this.logPollIntervalId = null;
                 }
-
                 const poll = async () => {
                     if (!this.session.id) return;
-                    let delayMs = 0;
-
+                    let delayMs = 2500;
                     try {
                         const response = await fetch(`/api/logs?session=${this.session.id}&type=${this.session.type}`);
                         if (!response.ok) {
                             if (response.status >= 400 && response.status < 500) {
                                 this.console.addLine(`\u001b[31mSession polling failed: ${response.statusText}. Please refresh.\u001b[0m`);
                                 this.stopPolling();
-                            }
-                            return;
+                            } return;
                         }
                         const text = await response.text();
                         if (text) {
                             this.console.addLines(text.trimEnd().split('\n'));
-                        } else {
-                            delayMs = 1000;
+                            delayMs = 100; // Poll faster if we just got logs
                         }
-                    } catch (error) {
-                        this.console.addLine(`\u001b[91mNetwork error while polling logs.\u001b[0m`);
-                        delayMs = 1000;
-                    } finally {
-                        if (this.logPollIntervalId !== null) {
+                    } catch (error) { this.console.addLine(`\u001b[91mNetwork error while polling logs.\u001b[0m`); }
+                    finally {
+                         if (this.logPollIntervalId !== null) {
                             this.logPollIntervalId = setTimeout(poll, delayMs);
-                        }
+                         }
                     }
                 };
-
                 this.logPollIntervalId = setTimeout(poll, 0);
             }
 
@@ -369,6 +369,7 @@
                         }
                     } catch (error) { console.warn("Stats poll failed:", error); }
                 };
+                poll();
                 this.statsPollIntervalId = setInterval(poll, 5000);
             }
 
@@ -388,7 +389,6 @@
                      const text = await response.text();
                      if (text) {
                         this.console.addLines(text.trimEnd().split('\n'));
-                        this.console.addLine("\u001b[90m--- End of stored history --- \u001b[0m");
                      }
                 } catch(error) { this.console.addLine(`\u001b[31mError fetching history: ${error.message}\u001b[0m`); }
             }
