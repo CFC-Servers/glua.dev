@@ -8,38 +8,38 @@ interface WebSocketMessage {
 }
 
 export interface Env {
-    // These are now the primary DOs, not SessionManager
     GMOD_PUBLIC: DurableObjectNamespace;
     GMOD_SIXTYFOUR: DurableObjectNamespace;
     GMOD_PRERELEASE: DurableObjectNamespace;
     GMOD_DEV: DurableObjectNamespace;
-    
     QUEUE_DO: DurableObjectNamespace<QueueDO>;
     LOG_BUCKET: R2Bucket;
     WORKER_URL: string;
 }
 
 // --- Container / Session Manager Base Class ---
-// This is the new core. It extends Container and has all the session logic.
 export class BaseSession extends Container<Env> {
     sessionState: "NEW" | "PROVISIONING" | "ACTIVE" | "CLOSED";
     browserSockets: Set<WebSocket>;
     containerSocket: WebSocket | null;
-    sessionId: string | null;
     logBuffer: string[];
 
     constructor(ctx: DurableObjectState, env: Env) {
-        // We pass the container config to the super constructor.
+        // Pass env vars to the container here, using the DO's own name as the session ID.
+        // This is the single source of truth.
+        console.log("blah", `we are starting a new container with, SESSION_ID: '${ctx.id.name!}' and WORKER_URL: '${env.WORKER_URL}'`)
         super(ctx, env, {
-            // Container configuration
             sleepAfter: "5m",
-            defaultPort: 8080 // Port the Go agent listens on
+            defaultPort: 8080,
+            envVars: {
+                SESSION_ID: ctx.id.name!,
+                WORKER_URL: "https://beta.glua.dev",
+            }
         });
         
         this.sessionState = "NEW";
         this.browserSockets = new Set();
         this.containerSocket = null;
-        this.sessionId = null;
         this.logBuffer = [];
 
         this.ctx.blockConcurrencyWhile(() => this.initialize());
@@ -52,8 +52,6 @@ export class BaseSession extends Container<Env> {
         }
     }
 
-    // The fetch handler is now the primary entry point for this DO.
-    // It routes WebSocket connections from either the browser or the agent.
     override async fetch(request: Request): Promise<Response> {
         if (this.sessionState === "CLOSED") {
              return new Response("This session has been closed.", { status: 410 });
@@ -63,9 +61,6 @@ export class BaseSession extends Container<Env> {
         if (upgradeHeader !== "websocket") {
             return new Response("Expected a WebSocket upgrade request.", { status: 426 });
         }
-
-        this.sessionId = url.searchParams.get("session");
-        console.log(`Set Session ID: ${this.sessionId}, Pathname: ${url.pathname}`);
         
         const [client, server] = Object.values(new WebSocketPair());
 
@@ -100,7 +95,7 @@ export class BaseSession extends Container<Env> {
         this.browserSockets.add(ws);
 
         try {
-            const logKey = `logs/${this.sessionId}.log`;
+            const logKey = `logs/${this.ctx.id.name!}.log`;
             const existingLogs = await this.env.LOG_BUCKET.get(logKey);
             if (existingLogs) this.sendToBrowser(ws, "HISTORY", await existingLogs.text());
             if (this.logBuffer.length > 0) this.sendToBrowser(ws, "LOGS", this.logBuffer);
@@ -109,14 +104,9 @@ export class BaseSession extends Container<Env> {
         if (this.sessionState === "NEW") {
             this.sessionState = "PROVISIONING";
             this.broadcastToBrowsers("LOGS", ["\u001b[33mProvisioning container...\u001b[0m"]);
-            // We can now call `this.start()` because we extend the Container class.
             try {
-                await this.start({
-                  envVars: {
-                    SESSION_ID: this.sessionId || "",
-                    WORKER_URL: "https://beta.glua.dev",
-                  }
-                });
+                // Now that env vars are set in the constructor, we just call start().
+                await this.start();
             } catch(e) {
                  console.error("Container Start Error:", e);
                 const errorMessage = `\u001b[31mFailed to start container: ${e instanceof Error ? e.message : String(e)}\u001b[0m`;
@@ -134,7 +124,7 @@ export class BaseSession extends Container<Env> {
         this.broadcastToBrowsers("LOGS", ["\u001b[33mContainer started. Waiting for agent...\u001b[0m"]);
     }
     
-    override async onStop(stopParams: { exitCode: number; reason: string }): Promise<void> {
+    override async onStop(): Promise<void> {
         await this.closeSession();
     }
     
@@ -147,7 +137,7 @@ export class BaseSession extends Container<Env> {
     onAgentMessage(msg: MessageEvent) {
         try {
             const message: WebSocketMessage = JSON.parse(msg.data as string);
-            if (message.type === "LOG" || message.type === "HISTORY_DUMP") {
+            if (message.type === "LOG") {
                 const lines = Array.isArray(message.payload) ? message.payload : [message.payload];
                 this.logBuffer.push(...lines);
                 this.broadcastToBrowsers("LOGS", lines);
@@ -180,6 +170,9 @@ export class BaseSession extends Container<Env> {
         });
         await this.flushLogsToR2();
         await this.notifyQueueManagerOfClosure();
+        
+        try { await this.stop(); }
+        catch(e) { console.error("Error stopping container:", e); }
     }
     
     async notifyQueueManagerOfClosure() {
@@ -191,7 +184,6 @@ export class BaseSession extends Container<Env> {
         });
     }
     
-    // ... WebSocket helpers and R2 flush logic ...
     async alarm() {
         await this.flushLogsToR2();
         if (this.sessionState !== "CLOSED") {
@@ -227,14 +219,11 @@ export class BaseSession extends Container<Env> {
 }
 
 
-// These are the actual DO classes that will be bound in wrangler.jsonc.
-// They just inherit all the logic from the BaseSession.
+// --- Exported Classes for Wrangler ---
 export class GmodPublic extends BaseSession {}
 export class GmodSixtyFour extends BaseSession {}
 export class GmodPrerelease extends BaseSession {}
 export class GmodDev extends BaseSession {}
-
-// QueueDO remains unchanged.
 export class QueueDO extends DurableObject<Env> {
     activeSessions: Set<string>; waitingQueue: { ticketId: string; resolve: (value: string) => void }[]; resolvedTickets: Map<string, string>; maxSessions: number;
     constructor(ctx: DurableObjectState, env: Env) { super(ctx, env); this.activeSessions = new Set(); this.waitingQueue = []; this.resolvedTickets = new Map(); this.maxSessions = 10; }
@@ -289,7 +278,6 @@ export default {
                 return new Response("Missing 'session' param for WebSocket", { status: 400 });
             }
             
-            // Route to the correct container DO based on the branch
             let sessionBinding: DurableObjectNamespace;
             switch(branch) {
                 case "sixty-four": sessionBinding = env.GMOD_SIXTYFOUR; break;

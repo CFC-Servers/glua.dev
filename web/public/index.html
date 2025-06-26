@@ -152,7 +152,11 @@
             window.history.pushState({ ...session }, "", url);
         }
 
+        let requestedSession = false;
         async function requestSession() {
+            if (requestedSession) return;
+            requestedSession = true;
+
             ui.initialState.classList.add("hidden");
             ui.queueState.classList.remove("hidden");
             ui.queuePosition.textContent = "Connecting...";
