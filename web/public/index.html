@@ -333,7 +333,7 @@
                 }
                 const poll = async () => {
                     if (!this.session.id) return;
-                    let delayMs = 2500;
+                    let delayMs = 50;
                     try {
                         const response = await fetch(`/api/logs?session=${this.session.id}&type=${this.session.type}`);
                         if (!response.ok) {
@@ -345,7 +345,8 @@
                         const text = await response.text();
                         if (text) {
                             this.console.addLines(text.trimEnd().split('\n'));
-                            delayMs = 100; // Poll faster if we just got logs
+                        } else {
+                            delayMs = 1000;
                         }
                     } catch (error) { this.console.addLine(`\u001b[91mNetwork error while polling logs.\u001b[0m`); }
                     finally {
