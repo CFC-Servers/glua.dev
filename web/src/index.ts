@@ -1,3 +1,4 @@
+import { Container } from "@cloudflare/containers";
 import { DurableObject } from "cloudflare:workers";
 
 // --- Type Definitions ---
@@ -20,6 +21,16 @@ export interface Env {
     // This must be set in wrangler.toml/jsonc.
     WORKER_URL: string;
 }
+
+export class BaseRunner extends Container {
+    defaultPort = 8080; 
+    sleepAfter = "5m";
+}
+
+export class GmodPublic extends BaseRunner {}
+export class GmodSixtyFour extends BaseRunner {}
+export class GmodPrerelease extends BaseRunner {}
+export class GmodDev extends BaseRunner {}
 
 // --- Singleton Queue Durable Object ---
 
