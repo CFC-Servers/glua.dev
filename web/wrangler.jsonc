@@ -48,6 +48,8 @@
     ],
     "durable_objects": {
         "bindings": [
+            { "name": "SESSION_DO", "class_name": "SessionDO" },
+            { "name": "QUEUE_DO", "class_name": "QueueDO" },
             { "name": "GMOD_PUBLIC", "class_name": "GmodPublic" },
             { "name": "GMOD_SIXTYFOUR", "class_name": "GmodSixtyFour" },
             { "name": "GMOD_PRERELEASE", "class_name": "GmodPrerelease" },

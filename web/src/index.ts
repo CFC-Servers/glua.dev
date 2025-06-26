@@ -1,5 +1,5 @@
-import { Container } from "@cloudflare/containers";
 import { DurableObject } from "cloudflare:workers";
+import { Container, getContainer } from "@cloudflare/containers";
 
 // --- Type Definitions ---
 
@@ -13,24 +13,26 @@ export interface Env {
     QUEUE_DO: DurableObjectNamespace<QueueDO>;
     LOG_BUCKET: R2Bucket;
     // Container bindings
-    GMOD_PUBLIC: any;
-    GMOD_SIXTYFOUR: any;
-    GMOD_PRERELEASE: any;
-    GMOD_DEV: any;
+    GMOD_PUBLIC: DurableObjectNamespace;
+    GMOD_SIXTYFOUR: DurableObjectNamespace;
+    GMOD_PRERELEASE: DurableObjectNamespace;
+    GMOD_DEV: DurableObjectNamespace;
     // The public URL of the worker, for the container to connect back to.
-    // This must be set in wrangler.toml/jsonc.
     WORKER_URL: string;
 }
 
-export class BaseRunner extends Container {
-    defaultPort = 8080; 
-    sleepAfter = "5m";
-}
+// --- Container Class Definitions ---
 
+export class BaseRunner extends Container<Env> {
+  defaultPort = 8080;
+  sleepAfter = '5m';
+  manualStart = true;
+}
 export class GmodPublic extends BaseRunner {}
 export class GmodSixtyFour extends BaseRunner {}
 export class GmodPrerelease extends BaseRunner {}
 export class GmodDev extends BaseRunner {}
+
 
 // --- Singleton Queue Durable Object ---
 
@@ -144,7 +146,7 @@ export class SessionDO extends DurableObject<Env> {
 
     async flushLogsToR2() {
         if (this.logBuffer.length === 0) return;
-        const logKey = `logs/${this.ctx.id}.log`;
+        const logKey = `logs/${this.ctx.id.name!}.log`;
         const logsToFlush = this.logBuffer.join("\n") + "\n";
         this.logBuffer = [];
         try {
@@ -153,7 +155,7 @@ export class SessionDO extends DurableObject<Env> {
             const newContent = existingContent + logsToFlush;
             await this.env.LOG_BUCKET.put(logKey, newContent);
         } catch (e) {
-            console.error(`Failed to flush logs for DO ${this.ctx.id}:`, e);
+            console.error(`Failed to flush logs for DO ${this.ctx.id.name!}:`, e);
             this.logBuffer.unshift(...logsToFlush.trim().split("\n"));
         }
     }
@@ -202,7 +204,7 @@ export class SessionDO extends DurableObject<Env> {
         this.browserSockets.add(ws);
 
         try {
-            const logKey = `logs/${this.ctx.id}.log`;
+            const logKey = `logs/${this.ctx.id.name!}.log`;
             const existingLogs = await this.env.LOG_BUCKET.get(logKey);
             if (existingLogs) this.sendToBrowser(ws, "HISTORY", await existingLogs.text());
             if (this.logBuffer.length > 0) this.sendToBrowser(ws, "LOGS", this.logBuffer);
@@ -217,16 +219,16 @@ export class SessionDO extends DurableObject<Env> {
         ws.addEventListener("close", () => this.browserSockets.delete(ws));
     }
 
-    // THE BIG FIX: This helper correctly gets the container stub from the environment
-    getContainerStub(): any {
-        let containerBinding;
+    getContainerStub() {
+        let containerBinding: any;
         switch (this.branch) {
             case "sixty-four": containerBinding = this.env.GMOD_SIXTYFOUR; break;
             case "prerelease": containerBinding = this.env.GMOD_PRERELEASE; break;
             case "dev":        containerBinding = this.env.GMOD_DEV; break;
             default:           containerBinding = this.env.GMOD_PUBLIC;
         }
-        return containerBinding.get(this.ctx.id);
+
+        return getContainer(containerBinding, this.ctx.id.toString());
     }
 
     async startContainer() {
@@ -234,8 +236,8 @@ export class SessionDO extends DurableObject<Env> {
         try {
             const container = this.getContainerStub();
             await container.start({
-                env: {
-                    WORKER_URL: this.env.WORKER_URL,
+                envVars: {
+                    WORKER_URL: "https://beta.glua.dev",
                     SESSION_ID: this.ctx.id.toString(),
                 }
             });
@@ -298,7 +300,7 @@ export class SessionDO extends DurableObject<Env> {
         void queueDO.fetch("http://do/api/session-closed", {
             method: "POST",
             headers: {"Content-Type": "application/json"},
-            body: JSON.stringify({ sessionId: this.ctx.id.toString() })
+            body: JSON.stringify({ sessionId: this.ctx.id.name! })
         });
     }
 
@@ -331,8 +333,9 @@ export default {
             if (!sessionId) {
                 return new Response("Missing 'session' param for WebSocket", { status: 400 });
             }
-            const sessionDO = env.SESSION_DO.get(env.SESSION_DO.idFromString(sessionId));
-            return sessionDO.fetch(request);
+            const sessionDOId = env.SESSION_DO.idFromName(sessionId);
+            const stub = env.SESSION_DO.get(sessionDOId);
+            return stub.fetch(request);
         }
 
         return new Response("Not Found", { status: 404 });
