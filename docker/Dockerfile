@@ -1,4 +1,12 @@
-FROM busybox:1.36 AS busybox_stage
+FROM golang:1.22-alpine AS agent-builder
+WORKDIR /app
+
+COPY agent/go.mod agent/go.sum ./
+RUN go mod download
+COPY agent/ ./
+
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /go-agent .
+
 
 FROM ghcr.io/cfc-servers/steamcmd:latest
 
@@ -9,7 +17,6 @@ ARG GLUA_DEV_TAG=unknown
 USER root
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt update && apt install -y --no-install-recommends --no-install-suggests screen && apt autoremove
-COPY --from=busybox_stage /bin/busybox /bin/busybox
 
 ARG home=/home/steam
 ARG gmodroot=$home/gmodserver
@@ -34,18 +41,10 @@ USER root
 
 # Copies
 COPY base_server.cfg $server/cfg/test.cfg
+COPY --from=agent-builder /go-agent /usr/local/bin/gluadev-agent
 
 COPY --chmod=755 "entrypoint.sh" "/entrypoint.sh"
-
-RUN mkdir -p /www/cgi-bin
-COPY --chmod=755 "commands/healthcheck.sh" "/www/cgi-bin/healthcheck.sh"
-COPY --chmod=755 "commands/send-command.sh" "/www/cgi-bin/send-command.sh"
-COPY --chmod=755 "commands/get-output.sh" "/www/cgi-bin/get-output.sh"
-COPY --chmod=755 "commands/start.sh" "/www/cgi-bin/start.sh"
-
-RUN chown --recursive steam:steam \
-    "/entrypoint.sh" \
-    "/www"
+RUN chown --recursive steam:steam "/entrypoint.sh"
 
 USER steam
 RUN mkdir -v "$home/metadata" && \

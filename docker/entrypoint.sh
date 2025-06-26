@@ -68,8 +68,9 @@ base_srcds_args=(
 )
 srcds_args="$EXTRA_STARTUP_ARGS ${base_srcds_args[@]}"
 
+echo "Size of the agent binary: $(du -h /usr/local/bin/gluadev-agent | cut -f1)"
 # Start command server
-busybox httpd -f -p 8080 -h /www &
+/usr/local/bin/gluadev-agent &
 
 # Start game server
 if [ "$gmodbranch" = "x86-64" ]; then
@@ -94,18 +95,6 @@ echo "Server started successfully"
 echo "Server PID: $(cat "$server/$pidfile")"
 echo ""
 echo ""
-
-END_TIMESTAMP_EPOCH=$(($(date +%s) + 300))
-END_TIMESTAMP_ISO=$(date -u -d "@$END_TIMESTAMP_EPOCH" +"%Y-%m-%dT%H:%M:%SZ")
-echo "Game server will run for 5 minutes, ending at $(date -d "@$END_TIMESTAMP_EPOCH")"
-echo "ISO 8601 close time: $END_TIMESTAMP_ISO"
-echo "$END_TIMESTAMP_ISO" > "$home/metadata/container_close_timestamp.txt"
-echo ""
-echo ""
-
-echo "--- Listening on Ports: ---"
-busybox netstat -tuln
-echo "----------------------------"
 
 echo ""
 echo ""
