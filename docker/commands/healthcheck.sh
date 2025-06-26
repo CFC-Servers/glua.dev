@@ -1,4 +1,10 @@
 #!/bin/sh
+home=/home/steam
+
+gameversion=$(cat $home/metadata/game_version.txt)
+gmodbranch=$(cat $home/metadata/game_branch.txt)
+containertag=$(cat $home/metadata/container_tag.txt)
+
 
 get_cpu_usage() {
     local stat1=$(head -n 1 "/proc/stat")
@@ -72,6 +78,9 @@ cpuusage=$(get_cpu_usage)
 printf "Content-Type: application/json\r\n"
 printf "\r\n"
 printf "{\n"
-printf "  \"diskusage\": %s,\n" "${diskusage:-0}"
-printf "  \"cpuusage\": %s\n" "${cpuusage:-0}"
+printf "  \"diskusage\": %s,\n"    "${diskusage:-0}"
+printf "  \"cpuusage\": %.0f,\n"   "${cpuusage:-0}"
+printf "  \"gameversion\": \"%s\",\n"  "${gameversion:-unknown}"
+printf "  \"gmodbranch\": \"%s\",\n"   "${gmodbranch:-unknown}"
+printf "  \"containertag\": \"%s\"\n" "${containertag:-unknown}"
 printf "}\n"
