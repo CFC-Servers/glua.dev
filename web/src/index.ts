@@ -191,16 +191,14 @@ const handleSendCommand = async (request: Request, env: Env, sessionId: string, 
   const container = findContainer(env, sessionId, branch);
   const containerRequest = createRequest("send-command.sh", "POST", command)
 
-  const containerResponse = await container.containerFetch(containerRequest)
-  return new Response(null, { status: containerResponse.status })
+  return container.containerFetch(containerRequest)
 };
 
 const handleHealthCheck = async (env: Env, sessionId: string, branch: string): Promise<Response> => {
   const container = findContainer(env, sessionId, branch);
   const containerRequest = createRequest("healthcheck.sh");
 
-  const containerResponse = await container.containerFetch(containerRequest);
-  return containerResponse
+  return container.containerFetch(containerRequest);
 }
 
 // The main fetch handler for the Worker

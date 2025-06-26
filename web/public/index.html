@@ -292,11 +292,13 @@
                         return;
                     }
                     const data = await response.json();
+                    this.console.addLine(`\u001b[90mInitial status fetched successfully.\u001b[0m`);
                     
                     this.session.context = {
                         branch: data.gmodbranch || this.session.type,
                         gameVersion: data.gameversion || 'N/A',
                         containerTag: data.containertag || 'N/A',
+                        closetime: data.closetime || null,
                     };
                     this.updateStatusWidget(data);
 
@@ -314,25 +316,45 @@
                 this.ui.contextBranch.textContent = this.session.context.branch || '...';
                 this.ui.contextGameVersion.textContent = this.session.context.gameVersion || '...';
                 this.ui.contextContainerTag.textContent = this.session.context.containerTag || '...';
+                console.log(this.ui)
             }
 
             startLogPolling() {
-                if (this.logPollIntervalId) clearInterval(this.logPollIntervalId);
+                if (this.logPollIntervalId) {
+                    clearTimeout(this.logPollIntervalId);
+                    this.logPollIntervalId = null;
+                }
+
                 const poll = async () => {
                     if (!this.session.id) return;
+                    let delayMs = 0;
+
                     try {
                         const response = await fetch(`/api/logs?session=${this.session.id}&type=${this.session.type}`);
                         if (!response.ok) {
                             if (response.status >= 400 && response.status < 500) {
                                 this.console.addLine(`\u001b[31mSession polling failed: ${response.statusText}. Please refresh.\u001b[0m`);
                                 this.stopPolling();
-                            } return;
+                            }
+                            return;
                         }
                         const text = await response.text();
-                        if (text) this.console.addLines(text.trimEnd().split('\n'));
-                    } catch (error) { this.console.addLine(`\u001b[91mNetwork error while polling logs.\u001b[0m`); }
+                        if (text) {
+                            this.console.addLines(text.trimEnd().split('\n'));
+                        } else {
+                            delayMs = 1000;
+                        }
+                    } catch (error) {
+                        this.console.addLine(`\u001b[91mNetwork error while polling logs.\u001b[0m`);
+                        delayMs = 1000;
+                    } finally {
+                        if (this.logPollIntervalId !== null) {
+                            this.logPollIntervalId = setTimeout(poll, delayMs);
+                        }
+                    }
                 };
-                this.logPollIntervalId = setInterval(poll, 2500);
+
+                this.logPollIntervalId = setTimeout(poll, 0);
             }
 
             startStatsPolling() {
@@ -351,7 +373,7 @@
             }
 
             stopPolling() {
-                clearInterval(this.logPollIntervalId);
+                clearTimeout(this.logPollIntervalId);
                 clearInterval(this.statsPollIntervalId);
                 this.logPollIntervalId = null;
                 this.statsPollIntervalId = null;
