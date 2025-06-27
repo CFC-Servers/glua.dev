@@ -22,6 +22,7 @@ export class BaseSession extends Container<Env> {
   browserSockets: Set<WebSocket>;
   containerSocket: WebSocket | null;
   logBuffer: string[];
+  sessionMetadata: { branch: string; gameVersion: string; containerTag: string } | null;
 
   constructor(ctx: DurableObjectState, env: Env) {
     // Pass the container config to the super constructor.
@@ -47,11 +48,18 @@ export class BaseSession extends Container<Env> {
       return new Response("Expected a WebSocket upgrade request.", { status: 426 });
     }
 
-    // This is the key. We grab the session ID from the request URL.
-    // This is the only reliable source of truth when a connection comes in.
     const sessionId = url.searchParams.get("session");
     if (!sessionId) {
       return new Response("WebSocket request missing session ID.", { status: 400 });
+    }
+
+    // Because a DO serializes requests, the logic inside this fetch handler will
+    // complete before the next request (e.g., from the agent) is processed.
+    // This is how we solve the race condition.
+    if (url.pathname === "/ws/browser" && this.sessionState === "NEW") {
+      this.sessionState = "PROVISIONING";
+      // Start the container, but don't wait for it to finish.
+      void this.startContainer(sessionId);
     }
 
     const [client, server] = Object.values(new WebSocketPair());
@@ -59,8 +67,7 @@ export class BaseSession extends Container<Env> {
     if (url.pathname === "/ws/agent") {
       this.handleAgentConnection(server);
     } else if (url.pathname === "/ws/browser") {
-      // We pass the session ID explicitly to the handler.
-      this.handleBrowserSession(server, sessionId);
+      this.handleBrowserWebSocket(server, sessionId);
     } else {
       return new Response("Unknown WebSocket endpoint.", { status: 404 });
     }
@@ -71,10 +78,9 @@ export class BaseSession extends Container<Env> {
   handleAgentConnection(ws: WebSocket) {
     (ws as any).accept();
 
-    if (this.containerSocket || this.sessionState !== "NEW") {
-      console.warn("Agent connection attempted when session is already active or closed.");
-      console.log("Session state:", this.sessionState);
-      //ws.close(1013, "Duplicate agent connection.");
+    if (this.containerSocket || this.sessionState !== "PROVISIONING") {
+      console.warn(`Agent connection attempted in unexpected state: ${this.sessionState}.`);
+      ws.close(1013, "Duplicate or unexpected agent connection.");
       return;
     }
 
@@ -88,22 +94,36 @@ export class BaseSession extends Container<Env> {
     ws.addEventListener("error", this.closeSession);
   }
 
-  async handleBrowserSession(ws: WebSocket, sessionId: string) {
+  handleBrowserWebSocket(ws: WebSocket, sessionId: string) {
     (ws as any).accept();
     this.browserSockets.add(ws);
 
-    try {
-      const logKey = `logs/${sessionId}.log`;
-      const existingLogs = await this.env.LOG_BUCKET.get(logKey);
-      if (existingLogs) this.sendToBrowser(ws, "HISTORY", await existingLogs.text());
-      if (this.logBuffer.length > 0) this.sendToBrowser(ws, "LOGS", this.logBuffer);
-    } catch (e) { console.error("Could not get log history from R2", e); }
+    // Restore logs from R2 and buffer for the new client
+    this.ctx.blockConcurrencyWhile(async () => {
+        try {
+            const logKey = `logs/${sessionId}.log`;
+            const existingLogs = await this.env.LOG_BUCKET.get(logKey);
+            let fullLogContent = "";
+            if (existingLogs) {
+                fullLogContent += await existingLogs.text();
+            }
+            // Append any logs that have come in since the DO was activated
+            if (this.logBuffer.length > 0) {
+                if (fullLogContent.length > 0 && !fullLogContent.endsWith("\n")) {
+                    fullLogContent += "\n"; // Ensure newline if content exists
+                }
+                fullLogContent += this.logBuffer.join("\n");
+            }
+            if (fullLogContent.length > 0) {
+                this.sendToBrowser(ws, "HISTORY", fullLogContent);
+            }
+        } catch (e) {
+            console.error("Could not get log history from R2", e);
+        }
+    });
 
-    if (this.sessionState === "NEW") {
-      this.sessionState = "PROVISIONING";
-      this.broadcastToBrowsers("LOGS", ["\u001b[33mProvisioning container...\u001b[0m"]);
-      // Pass the session ID to the start method.
-      void this.startContainer(sessionId);
+    if (this.sessionState === "PROVISIONING") {
+      this.sendToBrowser(ws, "LOGS", ["\u001b[33mProvisioning container... Waiting for agent connection.\u001b[0m"]);
     }
 
     ws.addEventListener("message", (msg) => this.onBrowserMessage(msg));
@@ -139,19 +159,33 @@ export class BaseSession extends Container<Env> {
     await this.closeSession();
   }
 
-  onAgentMessage(msg: MessageEvent) {
+  onAgentMessage = (msg: MessageEvent) => {
     try {
-      console.log("Received message from agent:", msg.data);
       const message: WebSocketMessage = JSON.parse(msg.data as string);
-      if (message.type === "LOG") {
-        const lines = Array.isArray(message.payload) ? message.payload : [message.payload];
-        this.logBuffer.push(...lines);
-        this.broadcastToBrowsers("LOGS", lines);
+      switch (message.type) {
+        case "LOG":
+          // The agent is sending a new log line.
+          const lines = Array.isArray(message.payload) ? message.payload : [message.payload];
+          this.logBuffer.push(...lines);
+          this.broadcastToBrowsers("LOGS", lines);
+          break;
+        case "HEALTH":
+          this.broadcastToBrowsers("HEALTH", message.payload);
+          break;
+        case "METADATA":
+          this.sessionMetadata = message.payload as { branch: string; gameVersion: string; containerTag: string };
+          this.broadcastToBrowsers("CONTEXT_UPDATE", this.sessionMetadata);
+          break;
+        case "AGENT_SHUTDOWN":
+           this.broadcastToBrowsers("LOGS", ["\u001b[31mAgent is shutting down...\u001b[0m"]);
+           this.closeSession();
+           break;
+        default:
+          console.warn(`Unknown message type from agent: ${message.type}`);
       }
-      if (message.type === "HEALTH") {
-        this.broadcastToBrowsers("HEALTH", message.payload);
-      }
-    } catch (e) { console.error("Failed to parse agent message:", e); }
+    } catch (e) {
+      console.error("Failed to parse agent message:", e);
+    }
   }
 
   onBrowserMessage(msg: MessageEvent) {

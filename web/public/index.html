@@ -244,6 +244,11 @@
                             ui.commandInput.disabled = true;
                             socket.close();
                             break;
+                        case "CONTEXT_UPDATE":
+                            ui.contextBranch.textContent = msg.payload.branch;
+                            ui.contextGameVersion.textContent = msg.payload.gameVersion;
+                            ui.contextContainerTag.textContent = msg.payload.containerTag;
+                            break;
                     }
                 } catch (e) { console.error("Failed to process message", e); }
             };

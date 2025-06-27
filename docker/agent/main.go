@@ -36,6 +36,11 @@ var (
 	sessionID   = os.Getenv("SESSION_ID")
 	logFilePath = "/home/steam/gmodserver/garrysmod/console.log"
 	pidFilePath = "/home/steam/gmodserver/garrysmod/gmod.pid"
+	metadataDir = "/home/steam/metadata"
+
+	gameBranch    string
+	gameVersion   string
+	containerTag  string
 )
 
 var shutdownOnce sync.Once
@@ -44,6 +49,8 @@ func main() {
 	if workerURL == "" || sessionID == "" {
 		log.Fatal("WORKER_URL and SESSION_ID environment variables are required")
 	}
+
+	readMetadata()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -61,7 +68,8 @@ func main() {
 	defer conn.Close()
 	log.Println("Connection established with worker.")
 
-	go dumpInitialLogs(ctx, conn)
+	sendMetadata(conn)
+
 	go tailLogs(ctx, conn)
 	go sendHealthStats(ctx, conn)
 	go monitorGameProcess(ctx, pid, conn, cancel)
@@ -142,6 +150,20 @@ func monitorGameProcess(ctx context.Context, pid int, c *websocket.Conn, cancel 
 	}
 }
 
+func sendMetadata(c *websocket.Conn) {
+	message := WebSocketMessage{
+		Type: "METADATA",
+		Payload: map[string]string{
+			"branch":       gameBranch,
+			"gameVersion":  gameVersion,
+			"containerTag": containerTag,
+		},
+	}
+	if err := c.WriteJSON(message); err != nil {
+		log.Println("Error sending metadata message:", err)
+	}
+}
+
 func shutdown(c *websocket.Conn, cancel context.CancelFunc) {
 	shutdownOnce.Do(func() {
 		log.Println("Initiating shutdown sequence...")
@@ -189,25 +211,43 @@ func tailLogs(ctx context.Context, c *websocket.Conn) {
 }
 
 func sendHealthStats(ctx context.Context, c *websocket.Conn) {
-	ticker := time.NewTicker(5 * time.Second)
+	ticker := time.NewTicker(500 * time.Millisecond)
 	defer ticker.Stop()
+
+	// Send first health check immediately
+	send := func() {
+		diskStat, err := disk.Usage("/")
+		if err != nil {
+			log.Printf("Failed to get disk usage: %v", err)
+			return // return instead of continue
+		}
+
+		// The first call to Percent with a zero duration is non-blocking and returns the usage since boot.
+		// Subsequent calls will be compared to the previous call.
+		cpuPercentages, err := cpu.Percent(0, false)
+		if err != nil {
+			log.Printf("Failed to get cpu usage: %v", err)
+			return // return instead of continue
+		}
+
+		stats := HealthStats{
+			CPUUsage:  cpuPercentages[0],
+			DiskUsage: diskStat.UsedPercent,
+		}
+		message := WebSocketMessage{Type: "HEALTH", Payload: stats}
+		if err := c.WriteJSON(message); err != nil {
+			log.Println("Error sending health message:", err)
+		}
+	}
+
+	send()
 
 	for {
 		select {
-		case <-ctx.Done(): return
+		case <-ctx.Done():
+			return
 		case <-ticker.C:
-			diskStat, err := disk.Usage("/")
-			if err != nil { log.Printf("Failed to get disk usage: %v", err); continue }
-			
-			cpuPercentages, err := cpu.Percent(time.Second, false)
-			if err != nil { log.Printf("Failed to get cpu usage: %v", err); continue }
-
-			stats := HealthStats{
-				CPUUsage:  cpuPercentages[0],
-				DiskUsage: diskStat.UsedPercent,
-			}
-			message := WebSocketMessage{Type: "HEALTH", Payload: stats}
-			if err := c.WriteJSON(message); err != nil { log.Println("Error sending health message:", err); return }
+			send()
 		}
 	}
 }
@@ -274,4 +314,28 @@ func listenForCommands(ctx context.Context, c *websocket.Conn) {
 			}
 		}
 	}
+}
+
+func readMetadata() {
+	var err error
+	gameBranch, err = readMetadataFile("game_branch.txt")
+	if err != nil {
+		log.Printf("Could not read game_branch.txt: %v", err)
+	}
+	gameVersion, err = readMetadataFile("game_version.txt")
+	if err != nil {
+		log.Printf("Could not read game_version.txt: %v", err)
+	}
+	containerTag, err = readMetadataFile("container_tag.txt")
+	if err != nil {
+		log.Printf("Could not read container_tag.txt: %v", err)
+	}
+}
+
+func readMetadataFile(filename string) (string, error) {
+	content, err := os.ReadFile(filepath.Join(metadataDir, filename))
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(content)), nil
 }
