@@ -7,12 +7,12 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
 	"syscall"
 	"time"
-	"path/filepath"
 
 	"github.com/gorilla/websocket"
 	"github.com/hpcloud/tail"
@@ -39,9 +39,9 @@ var (
 	pidFilePath = "/home/steam/gmodserver/garrysmod/gmod.pid"
 	metadataDir = "/home/steam/metadata"
 
-	gameBranch    string
-	gameVersion   string
-	containerTag  string
+	gameBranch   string
+	gameVersion  string
+	containerTag string
 )
 
 var shutdownOnce sync.Once
@@ -54,29 +54,46 @@ func main() {
 	readMetadata()
 
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 
 	pid, err := waitForAndReadPID(ctx, pidFilePath)
 	if err != nil {
+		cancel()
 		log.Fatalf("Failed to get game server PID: %v", err)
 	}
 	log.Printf("Now monitoring game server with PID: %d", pid)
 
 	conn, err := connectToWorker(ctx)
 	if err != nil {
+		cancel()
 		log.Fatalf("Failed to establish WebSocket connection: %v", err)
 	}
-	defer conn.Close()
 	log.Println("Connection established with worker.")
 
-	sendMetadata(conn)
+	writeChan := make(chan WebSocketMessage, 32)
+	go webSocketWriter(conn, writeChan)
 
-	go tailLogs(ctx, conn)
-	go sendHealthStats(ctx, conn)
-	go monitorGameProcess(ctx, pid, conn, cancel)
+	sendMetadata(writeChan)
+	dumpInitialLogs(writeChan)
+
+	go tailLogs(ctx, writeChan)
+	go sendHealthStats(ctx, writeChan)
+	go monitorGameProcess(ctx, pid, writeChan, cancel)
 
 	listenForCommands(ctx, conn)
-	shutdown(conn, cancel)
+	shutdown(writeChan, cancel)
+}
+
+// webSocketWriter is the only goroutine permitted to write to the WebSocket connection.
+func webSocketWriter(c *websocket.Conn, writeChan <-chan WebSocketMessage) {
+	defer c.Close()
+	for message := range writeChan {
+		if err := c.WriteJSON(message); err != nil {
+			log.Printf("Error writing json to websocket: %v", err)
+			return
+		}
+	}
+	log.Println("Write channel closed. Sending close message.")
+	c.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(1000, "Normal Closure"))
 }
 
 func waitForAndReadPID(ctx context.Context, path string) (int, error) {
@@ -91,7 +108,6 @@ func waitForAndReadPID(ctx context.Context, path string) (int, error) {
 		case <-timeoutCtx.Done():
 			return 0, fmt.Errorf("timed out waiting for PID file at %s", path)
 		case <-ticker.C:
-			// CORRECTED: Use os.ReadFile instead of ioutil.ReadFile
 			pidBytes, err := os.ReadFile(path)
 			if err == nil {
 				pid, err := strconv.Atoi(strings.TrimSpace(string(pidBytes)))
@@ -123,14 +139,14 @@ func connectToWorker(ctx context.Context) (*websocket.Conn, error) {
 }
 
 // monitorGameProcess checks if the game server process is still running.
-func monitorGameProcess(ctx context.Context, pid int, c *websocket.Conn, cancel context.CancelFunc) {
+func monitorGameProcess(ctx context.Context, pid int, writeChan chan<- WebSocketMessage, cancel context.CancelFunc) {
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
 
 	process, err := os.FindProcess(pid)
 	if err != nil {
 		log.Printf("Could not find process with PID %d: %v. Shutting down.", pid, err)
-		shutdown(c, cancel)
+		shutdown(writeChan, cancel)
 		return
 	}
 
@@ -139,19 +155,17 @@ func monitorGameProcess(ctx context.Context, pid int, c *websocket.Conn, cancel 
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			// CORRECTED: The standard way to check if a process exists on Linux is to send it signal 0.
 			err := process.Signal(syscall.Signal(0))
 			if err != nil {
-				// If the error is "os: process already finished", it means the process is dead.
 				log.Printf("Game server process (PID: %d) is no longer running (err: %v). Shutting down.", pid, err)
-				shutdown(c, cancel)
+				shutdown(writeChan, cancel)
 				return
 			}
 		}
 	}
 }
 
-func sendMetadata(c *websocket.Conn) {
+func sendMetadata(writeChan chan<- WebSocketMessage) {
 	message := WebSocketMessage{
 		Type: "METADATA",
 		Payload: map[string]string{
@@ -160,19 +174,18 @@ func sendMetadata(c *websocket.Conn) {
 			"containerTag": containerTag,
 		},
 	}
-	if err := c.WriteJSON(message); err != nil {
-		log.Println("Error sending metadata message:", err)
-	}
+	writeChan <- message
 }
 
-func shutdown(c *websocket.Conn, cancel context.CancelFunc) {
+func shutdown(writeChan chan<- WebSocketMessage, cancel context.CancelFunc) {
 	shutdownOnce.Do(func() {
 		log.Println("Initiating shutdown sequence...")
 		cancel()
 
-		dumpInitialLogs(context.Background(), c)
-		c.WriteJSON(WebSocketMessage{Type: "AGENT_SHUTDOWN", Payload: "Agent is shutting down."})
-		c.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(1000, "Normal Closure"))
+		writeChan <- WebSocketMessage{Type: "AGENT_SHUTDOWN", Payload: "Agent is shutting down."}
+
+		close(writeChan)
+
 		time.Sleep(1 * time.Second)
 
 		log.Println("Shutdown complete. Exiting.")
@@ -182,53 +195,66 @@ func shutdown(c *websocket.Conn, cancel context.CancelFunc) {
 
 // --- WebSocket Communication Goroutines ---
 
-func dumpInitialLogs(ctx context.Context, c *websocket.Conn) {
+func dumpInitialLogs(writeChan chan<- WebSocketMessage) {
 	initialContent, err := os.ReadFile(logFilePath)
 	if err != nil {
-		if !os.IsNotExist(err) { log.Printf("Error reading initial log file: %v", err) }
+		if !os.IsNotExist(err) {
+			log.Printf("Error reading initial log file: %v", err)
+		}
 		return
 	}
 	if len(initialContent) > 0 {
-		message := WebSocketMessage{Type: "HISTORY_DUMP", Payload: strings.Split(string(initialContent), "\n")}
-		if err := c.WriteJSON(message); err != nil { log.Println("Failed to dump initial logs:", err) }
+		message := WebSocketMessage{Type: "HISTORY_DUMP", Payload: strings.Split(string(initialContent), "
+")}
+		writeChan <- message
 	}
 }
 
-func tailLogs(ctx context.Context, c *websocket.Conn) {
+func tailLogs(ctx context.Context, writeChan chan<- WebSocketMessage) {
+	time.Sleep(250 * time.Millisecond)
 	t, err := tail.TailFile(logFilePath, tail.Config{Follow: true, ReOpen: true, MustExist: false})
-	if err != nil { log.Printf("Failed to tail log file: %v", err); return }
+	if err != nil {
+		log.Printf("Failed to tail log file: %v", err)
+		return
+	}
 	defer t.Stop()
 
 	for {
 		select {
-		case <-ctx.Done(): return
+		case <-ctx.Done():
+			return
 		case line, ok := <-t.Lines:
-			if !ok { return }
-			if line == nil { continue }
+			if !ok {
+				return
+			}
+			if line == nil {
+				continue
+			}
 			message := WebSocketMessage{Type: "LOG", Payload: line.Text}
-			if err := c.WriteJSON(message); err != nil { log.Println("Error sending log message:", err); return }
+			select {
+			case writeChan <- message:
+			case <-ctx.Done():
+				return
+			}
 		}
 	}
 }
 
-func sendHealthStats(ctx context.Context, c *websocket.Conn) {
+func sendHealthStats(ctx context.Context, writeChan chan<- WebSocketMessage) {
 	ticker := time.NewTicker(500 * time.Millisecond)
 	defer ticker.Stop()
 
-	// Send first health check immediately
 	send := func() {
 		diskStat, err := disk.Usage("/")
 		if err != nil {
 			log.Printf("Failed to get disk usage: %v", err)
-			return // return instead of continue
+			return
 		}
 
-		// The first call to Percent with a zero duration is non-blocking and returns the usage since boot.
-		// Subsequent calls will be compared to the previous call.
 		cpuPercentages, err := cpu.Percent(0, false)
 		if err != nil {
 			log.Printf("Failed to get cpu usage: %v", err)
-			return // return instead of continue
+			return
 		}
 
 		stats := HealthStats{
@@ -236,8 +262,9 @@ func sendHealthStats(ctx context.Context, c *websocket.Conn) {
 			DiskUsage: diskStat.UsedPercent,
 		}
 		message := WebSocketMessage{Type: "HEALTH", Payload: stats}
-		if err := c.WriteJSON(message); err != nil {
-			log.Println("Error sending health message:", err)
+		select {
+		case writeChan <- message:
+		case <-ctx.Done():
 		}
 	}
 
