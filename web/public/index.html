@@ -24,9 +24,47 @@
         #status-panel.collapsed .panel-content { max-height: 0px; opacity: 0; padding-top: 0; padding-bottom: 0; margin-top: 0; overflow: hidden; }
         #status-panel .toggle-icon { transition: transform 0.3s ease; }
         #status-panel.collapsed .toggle-icon { transform: rotate(180deg); }
+
+        #editor-panel {
+            transition: transform 0.3s ease-in-out, height 0.3s ease-in-out;
+            height: 50%;
+            transform: translateY(100%);
+        }
+        #editor-panel.open {
+            transform: translateY(0);
+        }
+        #editor-panel.resizing {
+            transition: none;
+        }
+        #editor-resizer {
+            cursor: ns-resize;
+        }
+        .cm-editor {
+            height: 100%;
+            background-color: #1F2937 !important;
+            color: #d1d5db !important;
+        }
+        .cm-gutters {
+            background-color: #1F2937 !important;
+            border-right: 1px solid #374151;
+        }
+        .cm-activeLine {
+            background-color: #374151 !important;
+        }
+        .cm-content {
+            caret-color: #60a5fa;
+        }
+        .cm-selectionBackground {
+            background-color: #3b82f6 !important;
+            opacity: 0.5;
+        }
     </style>
 </head>
 <body class="text-gray-200 antialiased">
+
+    <!-- CodeMirror Imports -->
+    
+</head>
 
     <!-- Start Session Modal -->
     <div id="start-modal-backdrop" class="fixed inset-0 bg-gray-900 bg-opacity-80 flex items-center justify-center z-50 transition-opacity duration-300">
@@ -74,6 +112,10 @@
                             <div class="flex justify-between items-baseline mb-1"><span class="text-xs font-semibold text-gray-300">Disk Usage</span><span id="disk-usage-label" class="text-xs font-mono text-cyan-300">0%</span></div>
                             <div class="w-full bg-gray-700 rounded-full h-1.5"><div id="disk-usage-bar" class="bg-cyan-500 h-1.5 rounded-full transition-all duration-500" style="width: 0%"></div></div>
                         </div>
+                        <div>
+                            <div class="flex justify-between items-baseline mb-1"><span class="text-xs font-semibold text-gray-300">Time Remaining</span><span id="timeout-label" class="text-xs font-mono text-green-300">00:00</span></div>
+                            <div class="w-full bg-gray-700 rounded-full h-1.5"><div id="timeout-bar" class="bg-green-500 h-1.5 rounded-full transition-all duration-500" style="width: 100%"></div></div>
+                        </div>
                         <div class="border-t border-gray-700 pt-3 text-xs space-y-2">
                             <div class="flex justify-between"><span class="text-gray-400">Branch:</span><a id="context-branch" href="#" target="_blank" rel="noopener noreferrer" class="font-mono text-indigo-400 hover:text-indigo-300 hover:underline truncate">...</a></div>
                             <div class="flex justify-between"><span class="text-gray-400">Game Ver:</span><a id="context-game-version" href="#" target="_blank" rel="noopener noreferrer" class="font-mono text-indigo-400 hover:text-indigo-300 hover:underline truncate">...</a></div>
@@ -88,6 +130,22 @@
         <div class="mt-4 flex items-center border-t border-gray-700 pt-3">
             <span class="text-green-400 mr-2 shrink-0">&gt;</span>
             <input type="text" id="command-input" class="w-full bg-transparent border-none focus:ring-0 focus:outline-none text-gray-200 placeholder-gray-500" placeholder="Enter command..." autocomplete="off" autofocus disabled>
+            <button id="editor-toggle-button" class="ml-4 p-2 bg-gray-700 hover:bg-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-900 focus:ring-indigo-500" title="Toggle Code Editor">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-gray-300" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M4 3a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V5a2 2 0 00-2-2H4zm3 2h6v1H7V5zm0 2h6v1H7V7zm0 2h6v1H7V9zm-1 3a1 1 0 011-1h4a1 1 0 110 2H7a1 1 0 01-1-1z" clip-rule="evenodd" /></svg>
+            </button>
+        </div>
+    </div>
+
+    <!-- Editor Panel -->
+    <div id="editor-panel" class="fixed bottom-0 left-0 right-0 bg-gray-800 border-t-2 border-gray-700 shadow-2xl flex flex-col">
+        <div id="editor-resizer" class="w-full h-2 bg-gray-700 hover:bg-indigo-500 transition-colors duration-200 cursor-ns-resize"></div>
+        <div class="flex-grow relative">
+            <div id="editor-container" class="absolute inset-0"></div>
+        </div>
+        <div class="p-2 bg-gray-900/50 flex justify-end items-center">
+             <button id="run-script-button" class="bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-2 px-4 rounded-md transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-indigo-400">
+                Run Script
+            </button>
         </div>
     </div>
 
@@ -107,10 +165,134 @@
             cpuUsageBar: document.getElementById("cpu-usage-bar"),
             diskUsageLabel: document.getElementById("disk-usage-label"),
             diskUsageBar: document.getElementById("disk-usage-bar"),
+            timeoutLabel: document.getElementById("timeout-label"),
+            timeoutBar: document.getElementById("timeout-bar"),
             contextBranch: document.getElementById("context-branch"),
             contextGameVersion: document.getElementById("context-game-version"),
             contextContainerTag: document.getElementById("context-container-tag"),
+            editorPanel: document.getElementById("editor-panel"),
+            editorToggleButton: document.getElementById("editor-toggle-button"),
+            editorContainer: document.getElementById("editor-container"),
+            runScriptButton: document.getElementById("run-script-button"),
+            editorResizer: document.getElementById("editor-resizer"),
         };
+
+        // --- Editor Logic ---
+        let editorView = null;
+        let isEditorOpen = false;
+
+        async function setupEditor() {
+            if (editorView) return;
+
+            const { EditorState } = await import("https://esm.sh/@codemirror/state@6.4.1");
+            const { EditorView, keymap } = await import("https://esm.sh/@codemirror/view@6.26.3");
+            const { defaultKeymap, history, historyKeymap } = await import("https://esm.sh/@codemirror/commands@6.5.0");
+            const { StreamLanguage } = await import("https://esm.sh/@codemirror/language@6.10.1");
+            const { lua } = await import("/lua-mode.js");
+            const { oneDark } = await import("https://esm.sh/@codemirror/theme-one-dark@6.1.2");
+
+            const customTheme = EditorView.theme({
+                "&": {
+                    color: "#d1d5db",
+                    backgroundColor: "#1F2937"
+                },
+                ".cm-content": { caretColor: "#60a5fa" },
+                "&.cm-focused .cm-cursor": { borderLeftColor: "#60a5fa" },
+                "&.cm-focused .cm-selectionBackground, ::selection": { backgroundColor: "#3b82f680" },
+                ".cm-gutters": {
+                    backgroundColor: "#1F2937",
+                    color: "#6b7280",
+                    border: "none"
+                },
+                ".cm-keyword": {color: "#c084fc"},
+                ".cm-string": {color: "#a5f3fc"},
+                ".cm-comment": {color: "#6b7280", fontStyle: "italic"},
+                ".cm-number": {color: "#fca5a5"},
+                ".cm-variableName": {color: "#d1d5db"},
+                ".cm-operator": {color: "#93c5fd"},
+                ".cm-function": {color: "#818cf8", fontWeight: "bold"}
+            }, {dark: true});
+
+            const startState = EditorState.create({
+                doc: localStorage.getItem("glua-editor-content") || "-- Welcome to the GLua Editor!\n\nfunction hello()\n  print(\"Hello from the editor!\")\nend\n\nhello()",
+                extensions: [
+                    oneDark,
+                ]
+            });
+
+            editorView = new EditorView({
+                state: startState,
+                parent: ui.editorContainer
+            });
+        }
+
+        function toggleEditor() {
+            isEditorOpen = !isEditorOpen;
+            if (isEditorOpen) {
+                ui.editorPanel.classList.add("open");
+                setupEditor();
+                setTimeout(() => editorView?.focus(), 300); // Focus editor after transition
+            } else {
+                ui.editorPanel.classList.remove("open");
+            }
+        }
+
+        function runScript() {
+            if (!editorView || !socket || socket.readyState !== WebSocket.OPEN) return;
+            const scriptContent = editorView.state.doc.toString();
+            if (scriptContent && !ui.runScriptButton.disabled) {
+                 socket.send(JSON.stringify({ type: "RUN_SCRIPT", payload: scriptContent }));
+                 virtualConsole.addLines([`\u001b[35mRunning script...\u001b[0m`]);
+
+                 // Provide visual feedback
+                 ui.runScriptButton.disabled = true;
+                 ui.runScriptButton.textContent = "Running...";
+                 setTimeout(() => {
+                    ui.runScriptButton.disabled = false;
+                    ui.runScriptButton.textContent = "Run Script";
+                 }, 1000); // Re-enable after 1 second
+            }
+        }
+
+        function startResize(e) {
+            e.preventDefault();
+            ui.editorPanel.classList.add('resizing');
+            window.addEventListener('mousemove', doResize);
+            window.addEventListener('mouseup', stopResize);
+        }
+
+        function doResize(e) {
+            const newHeight = window.innerHeight - e.clientY;
+            if (newHeight > 100 && newHeight < window.innerHeight - 100) {
+                 ui.editorPanel.style.height = `${newHeight}px`;
+            }
+        }
+
+        function stopResize() {
+            ui.editorPanel.classList.remove('resizing');
+            window.removeEventListener('mousemove', doResize);
+            window.removeEventListener('mouseup', stopResize);
+        }
+
+        // --- Global Event Listeners ---
+        window.addEventListener('keydown', (e) => {
+            if (e.key === '.' && (e.metaKey || e.ctrlKey)) {
+                e.preventDefault();
+                toggleEditor();
+            }
+        })
+
+        ui.editorToggleButton.addEventListener("click", toggleEditor);
+        ui.runScriptButton.addEventListener("click", runScript);
+        ui.editorResizer.addEventListener("mousedown", startResize);
+
+        // --- Global Event Listeners ---
+        window.addEventListener('keydown', (e) => {
+            if (e.key === '.' && (e.metaKey || e.ctrlKey)) {
+                e.preventDefault();
+                toggleEditor();
+            }
+        });
 
         // --- Console Rendering Logic ---
         class VirtualConsole {
@@ -239,6 +421,9 @@
                         case "HEALTH":
                             updateStatusWidget(msg.payload);
                             break;
+                        case "SESSION_TIMER":
+                            setupSessionTimer(msg.payload.endTime);
+                            break;
                         case "SESSION_CLOSED":
                             virtualConsole.addLines(["\u001b[31mSession has been closed by the server.\u001b[0m"]);
                             ui.commandInput.disabled = true;
@@ -264,6 +449,58 @@
                 console.error("WebSocket Error:", err);
                 virtualConsole.addLines(["\u001b[31mWebSocket connection error.\u001b[0m"]);
             };
+        }
+
+        let sessionTimerInterval = null;
+        const totalSessionDuration = 6 * 60 * 1000; // 6 minutes in ms
+
+        function setupSessionTimer(endTime) {
+            if (sessionTimerInterval) {
+                clearInterval(sessionTimerInterval);
+            }
+
+            function formatTime(ms) {
+                if (ms < 0) ms = 0;
+                const totalSeconds = Math.floor(ms / 1000);
+                const minutes = Math.floor(totalSeconds / 60);
+                const seconds = totalSeconds % 60;
+                return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+            }
+
+            sessionTimerInterval = setInterval(() => {
+                const remainingTime = endTime - Date.now();
+
+                if (remainingTime <= 0) {
+                    ui.timeoutLabel.textContent = "00:00";
+                    ui.timeoutBar.style.width = "0%";
+                    ui.timeoutBar.classList.remove('bg-green-500', 'bg-yellow-500');
+                    ui.timeoutBar.classList.add('bg-red-500');
+                    ui.timeoutLabel.classList.remove('text-green-300', 'text-yellow-300');
+                    ui.timeoutLabel.classList.add('text-red-300');
+                    clearInterval(sessionTimerInterval);
+                    return;
+                }
+
+                const percentage = (remainingTime / totalSessionDuration) * 100;
+
+                ui.timeoutLabel.textContent = formatTime(remainingTime);
+                ui.timeoutBar.style.width = `${percentage}%`;
+
+                // Update colors
+                ui.timeoutBar.classList.remove('bg-green-500', 'bg-yellow-500', 'bg-red-500');
+                ui.timeoutLabel.classList.remove('text-green-300', 'text-yellow-300', 'text-red-300');
+
+                if (percentage > 50) {
+                    ui.timeoutBar.classList.add('bg-green-500');
+                    ui.timeoutLabel.classList.add('text-green-300');
+                } else if (percentage > 20) {
+                    ui.timeoutBar.classList.add('bg-yellow-500');
+                    ui.timeoutLabel.classList.add('text-yellow-300');
+                } else {
+                    ui.timeoutBar.classList.add('bg-red-500');
+                    ui.timeoutLabel.classList.add('text-red-300');
+                }
+            }, 1000);
         }
 
         function sendCommand(commandText) {

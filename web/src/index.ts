@@ -23,6 +23,7 @@ export class BaseSession extends Container<Env> {
   containerSocket: WebSocket | null;
   logBuffer: string[];
   sessionMetadata: { branch: string; gameVersion: string; containerTag: string } | null;
+  sessionEndTime?: number;
 
   constructor(ctx: DurableObjectState, env: Env) {
     // Pass the container config to the super constructor.
@@ -86,6 +87,11 @@ export class BaseSession extends Container<Env> {
 
     this.containerSocket = ws;
     this.sessionState = "ACTIVE";
+
+    const sessionDuration = 6 * 60 * 1000; // 6 minutes
+    this.sessionEndTime = Date.now() + sessionDuration;
+    this.broadcastToBrowsers("SESSION_TIMER", { endTime: this.sessionEndTime });
+
     this.broadcastToBrowsers("LOGS", ["\u001b[32mAgent connected. Session is live.\u001b[0m"]);
     this.ctx.storage.setAlarm(Date.now() + 60 * 1000);
 
@@ -97,6 +103,10 @@ export class BaseSession extends Container<Env> {
   handleBrowserWebSocket(ws: WebSocket, sessionId: string) {
     (ws as any).accept();
     this.browserSockets.add(ws);
+
+    if (this.sessionState === "ACTIVE" && this.sessionEndTime) {
+      this.sendToBrowser(ws, "SESSION_TIMER", { endTime: this.sessionEndTime });
+    }
 
     // Restore logs from R2 and buffer for the new client
     this.ctx.blockConcurrencyWhile(async () => {
@@ -193,6 +203,11 @@ export class BaseSession extends Container<Env> {
       console.log("Received message from browser:", msg.data);
       const message: WebSocketMessage = JSON.parse(msg.data as string);
       if (this.containerSocket?.readyState === WebSocket.OPEN) {
+        if (message.type === "RUN_SCRIPT") {
+            console.log("--- RUN SCRIPT ---");
+            console.log(message.payload);
+            console.log("--------------------");
+        }
         this.containerSocket.send(JSON.stringify(message));
       }
     } catch (e) { console.error("Failed to parse browser message:", e); }
