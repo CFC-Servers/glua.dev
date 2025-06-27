@@ -12,6 +12,7 @@ import (
 	"sync"
 	"syscall"
 	"time"
+	"path/filepath"
 
 	"github.com/gorilla/websocket"
 	"github.com/hpcloud/tail"
