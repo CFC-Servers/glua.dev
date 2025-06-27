@@ -213,29 +213,61 @@ func sendHealthStats(ctx context.Context, c *websocket.Conn) {
 	}
 }
 
-func listenForCommands(ctx context.Context, c *websocket.Conn) {
-	for {
-		select {
-		case <-ctx.Done(): return
-		default:
-			var msg WebSocketMessage
-			c.SetReadDeadline(time.Now().Add(1 * time.Second))
-			err := c.ReadJSON(&msg)
-			if err != nil {
-				if netErr, ok := err.(net.Error); ok && netErr.Timeout() { continue }
-				log.Println("Error reading message from worker, closing connection:", err)
-				return
-			}
-
-			if msg.Type == "COMMAND" {
-				command, ok := msg.Payload.(string)
-				if !ok { log.Println("Received invalid command payload."); continue }
-				
-				log.Printf("Executing command: %s", command)
-				cmd := exec.Command("screen", "-S", "gmod", "-X", "stuff", command+"\n")
-				if err := cmd.Run(); err != nil { log.Printf("Error executing command: %v", err) }
-			}
-		}
-	}
+type readResult struct {
+    msg WebSocketMessage
+    err error
 }
 
+func listenForCommands(ctx context.Context, c *websocket.Conn) {
+    readChan := make(chan readResult, 1)
+
+    go func() {
+        defer close(readChan)
+
+        for {
+            var msg WebSocketMessage
+            err := c.ReadJSON(&msg)
+
+            select {
+            case readChan <- readResult{msg: msg, err: err}:
+            case <-ctx.Done():
+                return
+            }
+
+            if err != nil {
+                return
+            }
+        }
+    }()
+
+    for {
+        select {
+        case <-ctx.Done():
+            log.Println("Context cancelled, stopping listener.")
+            return
+
+        case result, ok := <-readChan:
+            if !ok || result.err != nil {
+                if result.err != nil && websocket.IsUnexpectedCloseError(result.err, websocket.CloseGoingAway, websocket.CloseNormalClosure) {
+                    log.Printf("Error reading from worker: %v", result.err)
+                }
+                return
+            }
+
+            msg := result.msg
+            if msg.Type == "COMMAND" {
+                command, ok := msg.Payload.(string)
+                if !ok {
+                    log.Println("Received invalid command payload.")
+                    continue
+                }
+
+                log.Printf("Executing command: %s", command)
+                cmd := exec.Command("screen", "-S", "gmod", "-X", "stuff", command+"\n")
+                if err := cmd.Run(); err != nil {
+                    log.Printf("Error executing command: %v", err)
+                }
+            }
+        }
+    }
+}
