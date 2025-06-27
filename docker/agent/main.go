@@ -204,8 +204,7 @@ func dumpInitialLogs(writeChan chan<- WebSocketMessage) {
 		return
 	}
 	if len(initialContent) > 0 {
-		message := WebSocketMessage{Type: "HISTORY_DUMP", Payload: strings.Split(string(initialContent), "
-")}
+		message := WebSocketMessage{Type: "HISTORY_DUMP", Payload: strings.Split(string(initialContent), "\n")}
 		writeChan <- message
 	}
 }
