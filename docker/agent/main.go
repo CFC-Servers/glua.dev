@@ -212,61 +212,92 @@ func sendHealthStats(ctx context.Context, c *websocket.Conn) {
 	}
 }
 
+// This struct is used to pass the result of a read operation over a channel.
+// It bundles the message and a potential error into a single object.
 type readResult struct {
-    msg WebSocketMessage
-    err error
+	msg WebSocketMessage
+	err error
 }
 
+// listenForCommands will listen for incoming websocket messages in a robust way.
+// It will not leak goroutines and handles shutdown signals correctly.
 func listenForCommands(ctx context.Context, c *websocket.Conn) {
-    readChan := make(chan readResult, 1)
+	// Create a channel to receive messages from the reading goroutine.
+	// A buffer of 1 prevents the reader from blocking if this loop is momentarily busy.
+	readChan := make(chan readResult, 1)
 
-    go func() {
-        defer close(readChan)
+	// Start a dedicated goroutine that does nothing but block on ReadJSON.
+	go func() {
+		// When this goroutine exits for any reason, it's crucial to close the
+		// channel to signal to the main loop that no more messages will arrive.
+		defer close(readChan)
 
-        for {
-            var msg WebSocketMessage
-            err := c.ReadJSON(&msg)
+		for {
+			var msg WebSocketMessage
+			err := c.ReadJSON(&msg)
 
-            select {
-            case readChan <- readResult{msg: msg, err: err}:
-            case <-ctx.Done():
-                return
-            }
+			// This select is the key to preventing goroutine leaks.
+			// It tries to send the result of the read. If the main loop has already
+			// shut down and is no longer listening to readChan, the <-ctx.Done()
+			// case will fire, allowing this goroutine to exit instead of
+			// blocking forever on the channel send.
+			select {
+			case readChan <- readResult{msg: msg, err: err}:
+			case <-ctx.Done():
+				return // The parent context was cancelled.
+			}
 
-            if err != nil {
-                return
-            }
-        }
-    }()
+			// If the read resulted in an error, there's no point in continuing
+			// to read. The error has been sent; we can now exit the loop.
+			if err != nil {
+				return
+			}
+		}
+	}()
 
-    for {
-        select {
-        case <-ctx.Done():
-            log.Println("Context cancelled, stopping listener.")
-            return
+	// This is the main event loop for this connection. It only has to worry
+	// about two things: the context being done, or a result from the reader.
+	for {
+		select {
+		case <-ctx.Done():
+			// The context was canceled (e.g., server shutdown). We're done.
+			// The websocket connection itself will be closed by a defer in the
+			// calling function, which will cause c.ReadJSON() in our reader
+			// goroutine to fail, ensuring it also exits cleanly.
+			log.Println("Context cancelled, stopping listener.")
+			return
 
-        case result, ok := <-readChan:
-            if !ok || result.err != nil {
-                if result.err != nil && websocket.IsUnexpectedCloseError(result.err, websocket.CloseGoingAway, websocket.CloseNormalClosure) {
-                    log.Printf("Error reading from worker: %v", result.err)
-                }
-                return
-            }
+		case result, ok := <-readChan:
+			// The `ok` will be false if the channel has been closed by the
+			// reader goroutine's defer statement.
+			if !ok {
+				log.Println("Read channel closed, connection is dead.")
+				return
+			}
 
-            msg := result.msg
-            if msg.Type == "COMMAND" {
-                command, ok := msg.Payload.(string)
-                if !ok {
-                    log.Println("Received invalid command payload.")
-                    continue
-                }
+			// The reader goroutine encountered an error.
+			if result.err != nil {
+				if websocket.IsUnexpectedCloseError(result.err, websocket.CloseGoingAway, websocket.CloseNormalClosure) {
+					log.Printf("Unrecoverable websocket error: %v", result.err)
+				}
+				return
+			}
 
-                log.Printf("Executing command: %s", command)
-                cmd := exec.Command("screen", "-S", "gmod", "-X", "stuff", command+"\n")
-                if err := cmd.Run(); err != nil {
-                    log.Printf("Error executing command: %v", err)
-                }
-            }
-        }
-    }
+			// If we're here, we have a valid message. Process it.
+			msg := result.msg
+			if msg.Type == "COMMAND" {
+				command, ok := msg.Payload.(string)
+				if !ok {
+					log.Println("Received invalid command payload.")
+					continue // Message is bad, but connection is fine. Wait for next.
+				}
+
+				log.Printf("Executing command: %s", command)
+				cmd := exec.Command("screen", "-S", "gmod", "-X", "stuff", command+"\n")
+				if err := cmd.Run(); err != nil {
+					log.Printf("Error executing command: %v", err)
+				}
+			}
+		}
+	}
 }
