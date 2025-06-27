@@ -32,8 +32,8 @@
     <div id="start-modal-backdrop" class="fixed inset-0 bg-gray-900 bg-opacity-80 flex items-center justify-center z-50 transition-opacity duration-300">
          <div class="bg-gray-800 p-8 rounded-lg shadow-2xl transform scale-95 transition-transform duration-300 w-full max-w-md">
             <div id="modal-initial-state">
-                <h2 class="text-2xl font-bold mb-4 text-white">Start New Console Session</h2>
-                <p class="text-gray-400 mb-6">Select a container type and press Start to spin up a new instance.</p>
+                <h2 class="text-2xl font-bold mb-4 text-white">Start New GLua Session</h2>
+                <p class="text-gray-400 mb-6">Select your desired game branch and spin up a real GMod environment in seconds</p>
                 <div class="mb-6">
                     <label for="container-type-select" class="block text-sm font-medium text-gray-300 mb-2 text-left">GMod Branch</label>
                     <select id="container-type-select" class="block w-full bg-gray-700 border border-gray-600 text-white rounded-md p-3 focus:outline-none focus:ring-2 focus:ring-indigo-500">
@@ -75,8 +75,8 @@
                             <div class="w-full bg-gray-700 rounded-full h-1.5"><div id="disk-usage-bar" class="bg-cyan-500 h-1.5 rounded-full transition-all duration-500" style="width: 0%"></div></div>
                         </div>
                         <div class="border-t border-gray-700 pt-3 text-xs space-y-2">
-                            <div class="flex justify-between"><span class="text-gray-400">Branch:</span><span id="context-branch" class="font-mono text-gray-200 truncate">...</span></div>
-                            <div class="flex justify-between"><span class="text-gray-400">Game Ver:</span><span id="context-game-version" class="font-mono text-gray-200 truncate">...</span></div>
+                            <div class="flex justify-between"><span class="text-gray-400">Branch:</span><a id="context-branch" href="#" target="_blank" rel="noopener noreferrer" class="font-mono text-indigo-400 hover:text-indigo-300 hover:underline truncate">...</a></div>
+                            <div class="flex justify-between"><span class="text-gray-400">Game Ver:</span><a id="context-game-version" href="#" target="_blank" rel="noopener noreferrer" class="font-mono text-indigo-400 hover:text-indigo-300 hover:underline truncate">...</a></div>
                             <div class="flex justify-between"><span class="text-gray-400">Container:</span><span id="context-container-tag" class="font-mono text-gray-200 truncate">...</span></div>
                         </div>
                     </div>
@@ -245,7 +245,9 @@
                             socket.close();
                             break;
                         case "CONTEXT_UPDATE":
+                            ui.contextBranch.href = `https://steamdb.info/app/4000/depots/?branch=${msg.payload.branch}`;
                             ui.contextBranch.textContent = msg.payload.branch;
+                            ui.contextGameVersion.href = `https://steamdb.info/patchnotes/${msg.payload.gameVersion}`;
                             ui.contextGameVersion.textContent = msg.payload.gameVersion;
                             ui.contextContainerTag.textContent = msg.payload.containerTag;
                             break;
