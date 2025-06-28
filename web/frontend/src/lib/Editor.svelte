@@ -7,11 +7,11 @@
     import { StreamLanguage } from "@codemirror/language";
     import { lua } from "./lua-mode.js";
     import { oneDark } from "@codemirror/theme-one-dark";
+    import { isEditorOpen } from './stores';
 
     export let socket: WebSocket | null;
 
     let editorView: EditorView | null = null;
-    let isEditorOpen = false;
     let editorPanel: HTMLDivElement;
     let runScriptButton: HTMLButtonElement;
 
@@ -39,12 +39,11 @@
 
     let value = localStorage.getItem("glua-editor-content") || "-- Welcome to the GLua Editor!\n\nfunction hello()\n  print(\"Hello from the editor!\")\nend\n\nhello()";
 
-    function toggleEditor() {
-        isEditorOpen = !isEditorOpen;
-        if (isEditorOpen) {
+    isEditorOpen.subscribe(open => {
+        if (open) {
             setTimeout(() => editorView?.focus(), 300);
         }
-    }
+    });
 
     function runScript() {
         if (!editorView || !socket || socket.readyState !== WebSocket.OPEN) return;
@@ -85,27 +84,18 @@
         const handleKeydown = (e: KeyboardEvent) => {
             if (e.key === '.' && (e.metaKey || e.ctrlKey)) {
                 e.preventDefault();
-                toggleEditor();
+                isEditorOpen.update(open => !open);
             }
         };
         window.addEventListener('keydown', handleKeydown);
 
-        // Also listen for the toggle button on the console
-        const editorToggleButton = document.getElementById("editor-toggle-button");
-        if (editorToggleButton) {
-            editorToggleButton.addEventListener("click", toggleEditor);
-        }
-
         return () => {
             window.removeEventListener('keydown', handleKeydown);
-            if (editorToggleButton) {
-                editorToggleButton.removeEventListener("click", toggleEditor);
-            }
         };
     });
 </script>
 
-<div bind:this={editorPanel} id="editor-panel" class="fixed bottom-0 left-0 right-0 bg-gray-800 border-t-2 border-gray-700 shadow-2xl flex flex-col" class:open={isEditorOpen}>
+<div bind:this={editorPanel} id="editor-panel" class="fixed bottom-0 left-0 right-0 bg-gray-800 border-t-2 border-gray-700 shadow-2xl flex flex-col" class:open={$isEditorOpen}>
     <div on:mousedown={startResize} class="w-full h-2 bg-gray-700 hover:bg-indigo-500 transition-colors duration-200 cursor-ns-resize"></div>
     <div class="flex-grow relative">
         <CodeMirror

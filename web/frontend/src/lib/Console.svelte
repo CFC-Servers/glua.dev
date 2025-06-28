@@ -1,6 +1,7 @@
 <script lang="ts">
     import { onMount } from "svelte";
     import StatusPanel from "./StatusPanel.svelte";
+    import { isEditorOpen } from "./stores";
 
     export let socket: WebSocket | null;
 
@@ -140,7 +141,7 @@
     <div class="mt-4 flex items-center border-t border-gray-700 pt-3">
         <span class="text-green-400 mr-2 shrink-0">&gt;</span>
         <input type="text" bind:this={commandInput} on:keydown={handleKeydown} class="w-full bg-transparent border-none focus:ring-0 focus:outline-none text-gray-200 placeholder-gray-500" placeholder="Enter command..." autocomplete="off" autofocus disabled>
-        <button id="editor-toggle-button" class="ml-4 p-2 bg-gray-700 hover:bg-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-900 focus:ring-indigo-500" title="Toggle Code Editor">
+        <button on:click={() => isEditorOpen.update(open => !open)} class="ml-4 p-2 bg-gray-700 hover:bg-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-900 focus:ring-indigo-500" title="Toggle Code Editor">
             <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-gray-300" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M4 3a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V5a2 2 0 00-2-2H4zm3 2h6v1H7V5zm0 2h6v1H7V7zm0 2h6v1H7V9zm-1 3a1 1 0 011-1h4a1 1 0 110 2H7a1 1 0 01-1-1z" clip-rule="evenodd" /></svg>
         </button>
     </div>
