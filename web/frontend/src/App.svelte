@@ -40,11 +40,13 @@
   }
 </script>
 
-<main>
+<main class="flex flex-row h-screen">
   {#if showModal}
     <Modal on:startsession={(e) => connectWebSocket(e.detail.sessionId, e.detail.sessionType)} />
   {:else}
-    <Console {socket} />
+    <div class="flex-grow">
+      <Console {socket} />
+    </div>
     <Editor {socket} />
   {/if}
 </main>
