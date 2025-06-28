@@ -1,4 +1,3 @@
-import { StringStream } from "https://esm.sh/@codemirror/language@6.10.1";
 function toWord(ch) {
   return /[\w_]/.test(ch) ? ch : " ";
 }

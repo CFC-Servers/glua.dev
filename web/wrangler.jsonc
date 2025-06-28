@@ -5,7 +5,7 @@
     "logpush": true,
     "compatibility_date": "2025-06-20",
     "assets": {
-        "directory": "./public"
+        "directory": "./frontend/dist"
     },
     "observability": {
         "enabled": true
@@ -55,17 +55,6 @@
             { "name": "GMOD_DEV", "class_name": "GmodDev" }
         ]
     },
-    "migrations": [
-        {
-            "tag": "v1",
-            "new_sqlite_classes": [
-                "GmodPublic",
-                "GmodSixtyFour",
-                "GmodPrerelease",
-                "GmodDev"
-            ]
-        },
-        { "tag": "v2", "deleted_classes": ["SessionDO"] }
-    ]
+    
 
 }
