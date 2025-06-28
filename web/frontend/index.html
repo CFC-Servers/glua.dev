@@ -27,48 +27,50 @@
         #status-panel.collapsed .toggle-icon { transform: rotate(180deg); }
 
         #editor-panel {
-            width: 100%;
             height: 100%;
             overflow: hidden;
             display: flex;
             flex-direction: column;
             background-color: #1f2937; /* bg-gray-800 */
-            border-left: 1px solid #374151; /* border-gray-700 */
-        }
-        #editor-panel.resizing {
-            transition: none !important;
         }
         #editor-toggle-button {
             position: absolute;
             top: 50%;
+            right: 1rem;
             transform: translateY(-50%);
-            left: -40px; /* Default position for the close state */
             z-index: 50;
-            height: 32px;
             background-color: #374151; /* bg-gray-700 */
-            border-radius: 9999px;
+            border-radius: 0.375rem; /* rounded-md */
+            padding: 0.5rem;
+            cursor: pointer;
+            transition: background-color 0.2s ease-in-out;
+            color: white;
             display: flex;
             align-items: center;
-            justify-content: center;
-            cursor: pointer;
-            transition: all 0.2s ease-in-out;
-            padding: 0 8px;
-            color: white;
-        }
-        #editor-toggle-button.closed {
-            left: -68px; /* Adjust position for the wider button */
+            gap: 0.5rem;
         }
         #editor-toggle-button:hover {
             background-color: #4f46e5; /* bg-indigo-600 */
         }
-        #editor-resizer {
-            position: absolute;
-            left: 0;
-            top: 0;
+        #resizer {
             width: 8px;
-            height: 100%;
             cursor: col-resize;
-            z-index: 10;
+            background-color: #111827;
+            transition: background-color 0.2s ease-in-out;
+            z-index: 20;
+        }
+        #resizer:hover {
+            background-color: #4f46e5; /* bg-indigo-600 */
+        }
+        #editor-wrapper {
+            position: relative;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+        }
+        #editor-container {
+            flex-grow: 1;
+            overflow: hidden;
         }
         #editor-footer {
             padding: 0.5rem;
@@ -76,45 +78,31 @@
             text-align: right;
         }
         #run-script-button {
-            position: absolute;
-            top: 0.75rem;
-            right: 0.75rem;
-            z-index: 10;
             display: flex;
             align-items: center;
             gap: 0.5rem;
-            background-color: rgba(255, 255, 255, 0.1);
-            color: #d1d5db; /* text-gray-300 */
-            padding: 0.375rem 0.75rem;
+            background-color: #4f46e5; /* bg-indigo-600 */
+            color: white;
+            padding: 0.5rem 1rem;
             border-radius: 0.375rem; /* rounded-md */
             font-weight: 500;
             font-size: 0.875rem;
             line-height: 1.25rem;
-            border: 1px solid rgba(255, 255, 255, 0.15);
+            border: none;
             cursor: pointer;
-            transition: all 0.2s ease-in-out;
-            backdrop-filter: blur(8px);
+            transition: background-color 0.2s ease-in-out;
         }
         #run-script-button:hover {
-            background-color: rgba(255, 255, 255, 0.2);
-            border-color: rgba(255, 255, 255, 0.25);
+            background-color: #4338ca; /* bg-indigo-700 */
         }
         #run-script-button:disabled {
-            background-color: rgba(75, 85, 99, 0.5); /* bg-gray-500/50 */
+            background-color: #374151; /* bg-gray-700 */
             color: #9ca3af; /* text-gray-400 */
-            cursor: wait;
-            border-color: transparent;
+            cursor: not-allowed;
         }
         #run-script-button svg {
-            transition: transform 0.2s ease-in-out;
-            width: 0.875rem;
-            height: 0.875rem;
-        }
-        #run-script-button:hover:not(:disabled) svg {
-            transform: scale(1.1);
-        }
-        #editor-wrapper .cm-editor {
-            height: 100%;
+            width: 1rem;
+            height: 1rem;
         }
         .cm-editor {
             height: 100%;
