@@ -40,11 +40,11 @@
   }
 </script>
 
-<main class="flex flex-row h-screen">
+<main class="flex flex-row h-screen overflow-hidden">
   {#if showModal}
     <Modal on:startsession={(e) => connectWebSocket(e.detail.sessionId, e.detail.sessionType)} />
   {:else}
-    <div class="flex-grow">
+    <div class="flex-grow h-full">
       <Console {socket} />
     </div>
     <Editor {socket} />

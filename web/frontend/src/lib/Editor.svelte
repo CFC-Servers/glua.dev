@@ -104,14 +104,17 @@
             <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M9.707 4.293a1 1 0 010 1.414L5.414 10l4.293 4.293a1 1 0 01-1.414 1.414l-5-5a1 1 0 010-1.414l5-5a1 1 0 011.414 0z" clip-rule="evenodd" /><path fill-rule="evenodd" d="M15.707 4.293a1 1 0 010 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414l-5-5a1 1 0 010-1.414l5-5a1 1 0 011.414 0z" clip-rule="evenodd" /></svg>
         {/if}
     </button>
-    <div id="editor-panel">
+    <div id="editor-panel" class:pointer-events-none={!$isEditorOpen}>
         <div on:mousedown={startResize} id="editor-resizer"></div>
         <div id="editor-panel-content">
-            <div class="flex-grow relative">
-                <CodeMirror bind:value bind:view={editorView} lang={StreamLanguage.define(lua)} theme={oneDark} extensions={[history(), keymap.of([...defaultKeymap, ...historyKeymap]), customTheme]} on:change={(e) => localStorage.setItem("glua-editor-content", e.detail.value)} />
-            </div>
-            <div id="editor-footer">
-                <button bind:this={runScriptButton} on:click={runScript} id="run-script-button" class="bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-md transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-indigo-400">Run Script</button>
+            <div class="flex-grow relative" id="editor-wrapper">
+                <CodeMirror bind:value bind:view={editorView} lang={StreamLanguage.define(lua)} theme={oneDark} extensions={[history(), keymap.of([...defaultKeymap, ...historyKeymap, {key: 'Ctrl-Enter', run: () => { runScript(); return true; }}]), customTheme]} on:change={(e) => localStorage.setItem("glua-editor-content", e.detail.value)} />
+                <button bind:this={runScriptButton} on:click={runScript} id="run-script-button" title="Run Script (Ctrl+Enter)">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                        <path d="M9.222 5.934a.5.5 0 00-.722.434v7.264a.5.5 0 00.722.434l6-3.632a.5.5 0 000-.868l-6-3.632z" />
+                    </svg>
+                    <span>Run</span>
+                </button>
             </div>
         </div>
     </div>

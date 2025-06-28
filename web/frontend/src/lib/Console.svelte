@@ -133,12 +133,14 @@
     }
 </script>
 
-<div id="console-container" class="h-full flex flex-col p-4 bg-gray-900 relative">
+<div id="console-container" class="h-full flex flex-col bg-gray-900 relative">
     <StatusPanel {socket} />
     
-    <div bind:this={outputContainer} class="flex-grow overflow-y-auto overflow-x-hidden"></div>
-    <div class="mt-4 flex items-center border-t border-gray-700 pt-3">
-        <span class="text-green-400 mr-2 shrink-0">&gt;</span>
-        <input type="text" bind:this={commandInput} on:keydown={handleKeydown} class="w-full bg-transparent border-none focus:ring-0 focus:outline-none text-gray-200 placeholder-gray-500" placeholder="Enter command..." autocomplete="off" autofocus disabled>
+    <div bind:this={outputContainer} class="flex-grow overflow-y-auto overflow-x-hidden p-4"></div>
+    <div class="mt-auto p-4">
+        <div class="flex items-center border-t border-gray-700 pt-3">
+            <span class="text-green-400 mr-2 shrink-0">&gt;</span>
+            <input type="text" bind:this={commandInput} on:keydown={handleKeydown} class="w-full bg-transparent border-none focus:ring-0 focus:outline-none text-gray-200 placeholder-gray-500" placeholder="Enter command..." autocomplete="off" autofocus disabled>
+        </div>
     </div>
 </div>

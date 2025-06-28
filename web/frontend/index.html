@@ -76,10 +76,45 @@
             text-align: right;
         }
         #run-script-button {
-            position: static;
-            width: auto;
-            height: auto;
-            padding: 0.5rem 1rem;
+            position: absolute;
+            top: 0.75rem;
+            right: 0.75rem;
+            z-index: 10;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            background-color: rgba(255, 255, 255, 0.1);
+            color: #d1d5db; /* text-gray-300 */
+            padding: 0.375rem 0.75rem;
+            border-radius: 0.375rem; /* rounded-md */
+            font-weight: 500;
+            font-size: 0.875rem;
+            line-height: 1.25rem;
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            cursor: pointer;
+            transition: all 0.2s ease-in-out;
+            backdrop-filter: blur(8px);
+        }
+        #run-script-button:hover {
+            background-color: rgba(255, 255, 255, 0.2);
+            border-color: rgba(255, 255, 255, 0.25);
+        }
+        #run-script-button:disabled {
+            background-color: rgba(75, 85, 99, 0.5); /* bg-gray-500/50 */
+            color: #9ca3af; /* text-gray-400 */
+            cursor: wait;
+            border-color: transparent;
+        }
+        #run-script-button svg {
+            transition: transform 0.2s ease-in-out;
+            width: 0.875rem;
+            height: 0.875rem;
+        }
+        #run-script-button:hover:not(:disabled) svg {
+            transform: scale(1.1);
+        }
+        #editor-wrapper .cm-editor {
+            height: 100%;
         }
         .cm-editor {
             height: 100%;
