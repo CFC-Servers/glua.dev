@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onMount, afterUpdate } from "svelte";
   import Modal from "./lib/Modal.svelte";
   import Console from "./lib/Console.svelte";
   import Editor from "./lib/Editor.svelte";
@@ -10,9 +10,23 @@
   let showModal = true;
   let editorPanel: HTMLElement;
   let consolePanel: HTMLElement;
+  let resizing = false;
 
   const EDITOR_WIDTH_KEY = 'glua-editor-width';
   const EDITOR_OPEN_KEY = 'glua-editor-open';
+
+  function updatePanelWidths() {
+    if (consolePanel && !resizing) {
+      if ($isEditorOpen) {
+        const savedWidth = localStorage.getItem(EDITOR_WIDTH_KEY) || '33%';
+        const consoleWidth = `calc(100% - ${savedWidth})`;
+        consolePanel.style.width = consoleWidth;
+        if(editorPanel) editorPanel.style.width = savedWidth;
+      } else {
+        consolePanel.style.width = '100%';
+      }
+    }
+  }
 
   onMount(() => {
     const params = new URLSearchParams(window.location.search);
@@ -22,18 +36,8 @@
       connectWebSocket(sessionId, sessionType);
     }
 
-    const savedWidth = localStorage.getItem(EDITOR_WIDTH_KEY);
-    if (savedWidth && editorPanel) {
-      editorPanel.style.width = savedWidth;
-      if (consolePanel) {
-        consolePanel.style.width = `${window.innerWidth - parseInt(savedWidth)}px`;
-      }
-    }
-
     const editorOpen = localStorage.getItem(EDITOR_OPEN_KEY);
-    if (editorOpen) {
-      isEditorOpen.set(JSON.parse(editorOpen));
-    }
+    isEditorOpen.set(editorOpen ? JSON.parse(editorOpen) : false);
 
     const handleKeydown = (e: KeyboardEvent) => {
         if (e.key === '.' && (e.metaKey || e.ctrlKey)) {
@@ -43,6 +47,10 @@
     };
     window.addEventListener('keydown', handleKeydown);
     return () => window.removeEventListener('keydown', handleKeydown);
+  });
+
+  afterUpdate(() => {
+    updatePanelWidths();
   });
 
   isEditorOpen.subscribe(open => {
@@ -69,23 +77,25 @@
 
   function handleMouseDown(e: MouseEvent) {
     e.preventDefault();
+    resizing = true;
 
     const handleMouseMove = (e: MouseEvent) => {
-      const consoleWidth = e.clientX;
       const editorWidth = window.innerWidth - e.clientX;
 
       if (editorWidth > 200 && editorWidth < window.innerWidth - 200) {
-        if (consolePanel) consolePanel.style.width = `${consoleWidth}px`;
         if (editorPanel) editorPanel.style.width = `${editorWidth}px`;
+        if (consolePanel) consolePanel.style.width = `${e.clientX}px`;
       }
     };
 
     const handleMouseUp = () => {
+      resizing = false;
       if (editorPanel) {
         localStorage.setItem(EDITOR_WIDTH_KEY, editorPanel.style.width);
       }
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('mouseup', handleMouseUp);
+      updatePanelWidths();
     };
 
     window.addEventListener('mousemove', handleMouseMove);
@@ -97,7 +107,7 @@
   {#if showModal}
     <Modal on:startsession={(e) => connectWebSocket(e.detail.sessionId, e.detail.sessionType)} />
   {:else}
-    <div bind:this={consolePanel} class="h-full relative" style:width={$isEditorOpen ? (localStorage.getItem(EDITOR_WIDTH_KEY) ? `${window.innerWidth - parseInt(localStorage.getItem(EDITOR_WIDTH_KEY) || '0')}px` : '67%') : '100%'}>
+    <div bind:this={consolePanel} class="h-full relative">
       <Console {socket} />
       <button id="editor-toggle-button" on:click={() => isEditorOpen.update(open => !open)} title="Toggle Editor (Ctrl+.)">
         {#if $isEditorOpen}
@@ -124,4 +134,6 @@
     {/if}
   {/if}
 </main>
+
+
 
