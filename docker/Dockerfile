@@ -37,6 +37,8 @@ else \
     ./steamcmd.sh +force_install_dir $gmodroot +login anonymous +app_update 4020 validate +quit; \
 fi
 
+COPY harness.lua $server/lua/autorun/harness.lua
+
 USER root
 
 # Copies

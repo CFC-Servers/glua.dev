@@ -20,10 +20,14 @@ import (
 	"github.com/shirou/gopsutil/v3/disk"
 )
 
-// WebSocketMessage matches the structure defined in our TypeScript worker.
 type WebSocketMessage struct {
 	Type    string      `json:"type"`
 	Payload interface{} `json:"payload,omitempty"`
+}
+
+type ScriptPayload struct {
+    Name   string `json:"name"`
+    Content string `json:"content"`
 }
 
 // HealthStats defines the structure for our health updates.
@@ -38,6 +42,7 @@ var (
 	logFilePath = "/home/steam/gmodserver/garrysmod/console.log"
 	pidFilePath = "/home/steam/gmodserver/garrysmod/gmod.pid"
 	metadataDir = "/home/steam/metadata"
+	scriptDir   = "/home/steam/gmodserver/garrysmod/lua/gluadev"
 
 	gameBranch   string
 	gameVersion  string
@@ -326,19 +331,37 @@ func listenForCommands(ctx context.Context, c *websocket.Conn) {
 			}
 
 			msg := result.msg
-			if msg.Type == "COMMAND" {
-				command, ok := msg.Payload.(string)
-				if !ok {
-					log.Println("Received invalid command payload.")
-					continue
-				}
+			switch msg.Type {
+                case "COMMAND":
+                    command, ok := msg.Payload.(string)
+                    if !ok {
+                        log.Println("Received invalid command payload.")
+                        continue
+                    }
 
-				log.Printf("Executing command: %s", command)
-				cmd := exec.Command("screen", "-S", "gmod", "-X", "stuff", command+"\n")
-				if err := cmd.Run(); err != nil {
-					log.Printf("Error executing command: %v", err)
-				}
-			}
+                    log.Printf("Executing command: %s", command)
+                    cmd := exec.Command("screen", "-S", "gmod", "-X", "stuff", command+"\n")
+                    if err := cmd.Run(); err != nil {
+                        log.Printf("Error executing command: %v", err)
+                    }
+                case "SCRIPT":
+                    script, ok := msg.Payload.(ScriptPayload)
+                    if !ok {
+                        log.Println("Received invalid script payload.")
+                        continue
+                    }
+
+                    scriptPath := filepath.Join(scriptDir, script.Name)
+                    contents := []byte(script.Content)
+
+                    log.Printf("Saving Script to : %s", scriptPath)
+                    log.Printf("Script contents: %s", contents)
+
+                    if err := os.WriteFile(scriptPath, contents, 0644); err != nil {
+                        log.Printf("Error writing script file: %v", err)
+                        continue
+                    }
+            }
 		}
 	}
 }

@@ -76,7 +76,7 @@ runs:
 
         $GITHUB_WORKSPACE/docker-slim build \
           --target glua_dev_fat:latest \
-          --continue-after 15 \
+          --continue-after 30 \
           --show-clogs --show-blogs \
           --include-bin "/usr/bin/date" \
           --include-bin "/usr/bin/echo" \
@@ -86,10 +86,6 @@ runs:
           --include-path "/home/steam/metadata" \
           --include-shell \
           --expose 8080 \
-          --http-probe-cmd /cgi-bin/start.sh \
-          --http-probe-cmd /cgi-bin/healthcheck.sh \
-          --http-probe-cmd /cgi-bin/get-output.sh \
-          --http-probe-cmd post:/cgi-bin/send-command.sh \
           --tag $BASE:$rawVersionTag \
           --tag $BASE:gamebuild-$id
 

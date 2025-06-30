@@ -10,6 +10,7 @@
 
     export let socket: WebSocket | null;
     export let visible: boolean;
+    export let fileName: string = "script.lua";
 
     let editorView: EditorView | null = null;
     let runScriptButton: HTMLButtonElement;
@@ -52,8 +53,20 @@ hello()
         if (!editorView || !socket || socket.readyState !== WebSocket.OPEN) return;
         const scriptContent = editorView.state.doc.toString().trim();
         if (scriptContent && !runScriptButton.disabled) {
-            socket.send(JSON.stringify({ type: "RUN_SCRIPT", payload: scriptContent }));
+            console.log("Running script:", scriptContent);
+
+            const struct = {
+                type: "SCRIPT",
+                payload: {
+                    name: fileName,
+                    content: scriptContent
+                }
+            };
+
+            socket.send(JSON.stringify(struct));
             runScriptButton.disabled = true;
+
+            // TODO: Send some signal from the server when the script has finished running to re-enable the button
             setTimeout(() => { runScriptButton.disabled = false; }, 1000);
         }
     }

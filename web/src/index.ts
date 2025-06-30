@@ -203,7 +203,7 @@ export class BaseSession extends Container<Env> {
       console.log("Received message from browser:", msg.data);
       const message: WebSocketMessage = JSON.parse(msg.data as string);
       if (this.containerSocket?.readyState === WebSocket.OPEN) {
-        if (message.type === "RUN_SCRIPT") {
+        if (message.type === "SCRIPT") {
             console.log("--- RUN SCRIPT ---");
             console.log(message.payload);
             console.log("--------------------");
