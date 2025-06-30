@@ -17,6 +17,7 @@
         constructor(container: HTMLDivElement) {
             this.container = container;
             this.ansiUp = new (window as any).AnsiUp();
+            this.ansiUp.use_classes = true;
             this.container.addEventListener('scroll', () => {
                 const threshold = 5;
                 this.isAtBottom = this.container.scrollHeight - this.container.scrollTop - this.container.clientHeight < threshold;
