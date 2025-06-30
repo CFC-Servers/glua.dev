@@ -80,9 +80,10 @@ export class BaseSession extends Container<Env> {
     (ws as any).accept();
 
     if (this.containerSocket || this.sessionState !== "PROVISIONING") {
-      console.warn(`Agent connection attempted in unexpected state: ${this.sessionState}.`);
-      ws.close(1013, "Duplicate or unexpected agent connection.");
-      return;
+      console.warn(`Agent connection attempted in unexpected state: ${this.sessionState}. Already had containerSocket?: ${!!this.containerSocket}`);
+      // TODO: Why is this firing inappropriately for non-public branches?
+      // ws.close(1013, "Duplicate or unexpected agent connection.");
+      // return;
     }
 
     this.containerSocket = ws;
@@ -281,7 +282,6 @@ export class BaseSession extends Container<Env> {
   }
 
   broadcastToBrowsers(type: string, payload: any) {
-    console.log("Broadcasting to browsers:", type, payload);
     const message = JSON.stringify({ type, payload });
 
     this.browserSockets.forEach(ws => {
@@ -292,44 +292,110 @@ export class BaseSession extends Container<Env> {
 }
 
 
-// --- Exported Classes for Wrangler ---
 export class GmodPublic extends BaseSession {}
 export class GmodSixtyFour extends BaseSession {}
 export class GmodPrerelease extends BaseSession {}
 export class GmodDev extends BaseSession {}
+
 export class QueueDO extends DurableObject<Env> {
-  activeSessions: Set<string>; waitingQueue: { ticketId: string; resolve: (value: string) => void }[]; resolvedTickets: Map<string, string>; maxSessions: number;
-  constructor(ctx: DurableObjectState, env: Env) { super(ctx, env); this.activeSessions = new Set(); this.waitingQueue = []; this.resolvedTickets = new Map(); this.maxSessions = 10; }
+  activeSessions: Set<string>;
+  waitingQueue: {
+    ticketId: string;
+    resolve: (value: string) => void
+  }[];
+  resolvedTickets: Map<string, string>;
+  maxSessions: number;
+
+  constructor(ctx: DurableObjectState, env: Env) {
+    super(ctx, env);
+    this.activeSessions = new Set();
+    this.waitingQueue = [];
+    this.resolvedTickets = new Map();
+    this.maxSessions = 10;
+  }
+
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
+
     if (url.pathname === "/api/request-session") {
       if (this.activeSessions.size < this.maxSessions) {
-        const sessionId = crypto.randomUUID(); this.activeSessions.add(sessionId);
+        const sessionId = crypto.randomUUID();
+        this.activeSessions.add(sessionId);
         return new Response(JSON.stringify({ status: "READY", sessionId }), { headers: { "Content-Type": "application/json" }, });
       } else {
-        const ticketId = crypto.randomUUID(); const position = this.waitingQueue.length + 1;
-        new Promise<string>((resolve) => { this.waitingQueue.push({ ticketId, resolve }); }).then((sessionId) => { this.resolvedTickets.set(ticketId, sessionId); });
-        return new Response(JSON.stringify({ status: "QUEUED", ticketId, position }), { status: 202, headers: { "Content-Type": "application/json" }, });
+        const ticketId = crypto.randomUUID();
+        const position = this.waitingQueue.length + 1;
+
+        const sessionId = await new Promise<string>((resolve) => {
+          this.waitingQueue.push({ ticketId, resolve });
+        });
+        this.resolvedTickets.set(ticketId, sessionId);
+
+        return new Response(JSON.stringify({
+          status: "QUEUED",
+          ticketId,
+          position
+        }), {
+          status: 202,
+          headers: {
+            "Content-Type": "application/json"
+          }
+        });
       }
     }
+
     if (url.pathname === "/api/queue-status") {
-      const ticketId = url.searchParams.get("ticketId"); if (!ticketId) return new Response("Missing ticketId", { status: 400 });
+      const ticketId = url.searchParams.get("ticketId");
+      if (!ticketId) return new Response("Missing ticketId", { status: 400 });
+
       if (this.resolvedTickets.has(ticketId)) {
-        const sessionId = this.resolvedTickets.get(ticketId)!; this.resolvedTickets.delete(ticketId);
-        return new Response(JSON.stringify({ status: "READY", sessionId }), { headers: { "Content-Type": "application/json" }, });
+        const sessionId = this.resolvedTickets.get(ticketId)!;
+        this.resolvedTickets.delete(ticketId);
+
+        return new Response(JSON.stringify({
+          status: "READY",
+          sessionId
+        }), {
+          headers: {
+            "Content-Type": "application/json"
+          }
+        });
       }
+
       const position = this.waitingQueue.findIndex(p => p.ticketId === ticketId);
-      if (position === -1) { return new Response(JSON.stringify({ error: "Ticket not found or already processed."}), { status: 404 }); }
-      return new Response(JSON.stringify({ status: "QUEUED", position: position + 1 }), { headers: { "Content-Type": "application/json" }, });
-    }
-    if (url.pathname === "/api/session-closed") {
-      const { sessionId } = await request.json<{sessionId: string}>(); this.activeSessions.delete(sessionId);
-      if (this.waitingQueue.length > 0) {
-        const nextInLine = this.waitingQueue.shift()!; const newSessionId = crypto.randomUUID();
-        this.activeSessions.add(newSessionId); nextInLine.resolve(newSessionId);
+      if (position === -1) {
+        return new Response(JSON.stringify({
+          error: "Ticket not found or already processed."
+        }), {
+          status: 404
+        })
       }
+
+      return new Response(JSON.stringify({
+        status: "QUEUED",
+        position: position + 1
+      }), {
+        headers: {
+          "Content-Type": "application/json"
+        }
+      });
+    }
+
+    if (url.pathname === "/api/session-closed") {
+      const { sessionId } = await request.json<{sessionId: string}>();
+      this.activeSessions.delete(sessionId);
+
+      if (this.waitingQueue.length > 0) {
+        const nextInLine = this.waitingQueue.shift()!;
+        const newSessionId = crypto.randomUUID();
+
+        this.activeSessions.add(newSessionId);
+        nextInLine.resolve(newSessionId);
+      }
+
       return new Response("Session closed and slot freed.", { status: 200 });
     }
+
     return new Response("Not found in QueueDO", { status: 404 });
   }
 }

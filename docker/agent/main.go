@@ -88,6 +88,27 @@ func main() {
 	shutdown(writeChan, cancel)
 }
 
+func getGameVersionString() string {
+    versionName := os.Getenv("GMOD_BRANCH")
+    if versionName == "" {
+        versionName = "live"
+    }
+
+    versionNameMap := map[string]string{
+        "live":    "public",
+        "x86-64":    "sixty-four",
+        "prerelease": "prerelease",
+        "dev":     "dev",
+    }
+
+    if version, ok := versionNameMap[versionName]; ok {
+        return version
+    } else {
+        log.Printf("Unknown GMOD branch: %s, defaulting to 'public'", versionName)
+        return "public"
+    }
+}
+
 // webSocketWriter is the only goroutine permitted to write to the WebSocket connection.
 func webSocketWriter(c *websocket.Conn, writeChan <-chan WebSocketMessage) {
 	defer c.Close()
@@ -125,6 +146,8 @@ func waitForAndReadPID(ctx context.Context, path string) (int, error) {
 }
 
 func connectToWorker(ctx context.Context) (*websocket.Conn, error) {
+    gameVersion = getGameVersionString()
+
 	u, err := url.Parse(workerURL)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse WORKER_URL: %w", err)
@@ -134,8 +157,10 @@ func connectToWorker(ctx context.Context) (*websocket.Conn, error) {
 		u.Scheme = "ws"
 	}
 	u.Path = "/ws/agent"
+
 	q := u.Query()
 	q.Set("session", sessionID)
+	q.Set("type", gameBranch)
 	u.RawQuery = q.Encode()
 
 	log.Printf("Connecting to %s", u.String())
