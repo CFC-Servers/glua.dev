@@ -31,7 +31,7 @@ hello()
 
     onMount(() => {
         const savedContent = localStorage.getItem("glua-editor-content");
-        if (savedContent) {
+        if (savedContent && savedContent !== 'undefined') {
             value = savedContent;
         }
     });
