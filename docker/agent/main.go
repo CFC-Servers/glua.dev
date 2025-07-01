@@ -146,7 +146,7 @@ func waitForAndReadPID(ctx context.Context, path string) (int, error) {
 }
 
 func connectToWorker(ctx context.Context) (*websocket.Conn, error) {
-    gameVersion = getGameVersionString()
+    versionString := getGameVersionString()
 
 	u, err := url.Parse(workerURL)
 	if err != nil {
@@ -160,7 +160,7 @@ func connectToWorker(ctx context.Context) (*websocket.Conn, error) {
 
 	q := u.Query()
 	q.Set("session", sessionID)
-	q.Set("type", gameBranch)
+	q.Set("type", versionString)
 	u.RawQuery = q.Encode()
 
 	log.Printf("Connecting to %s", u.String())
