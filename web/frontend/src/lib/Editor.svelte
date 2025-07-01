@@ -1,29 +1,16 @@
 <script lang="ts">
-    import { onMount, afterUpdate } from "svelte";
+    import { onMount } from "svelte";
     import CodeMirror from 'svelte-codemirror-editor';
     import { EditorView, keymap } from "@codemirror/view";
     import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
     import { StreamLanguage } from "@codemirror/language";
     import { lua } from "./lua-mode.js";
     import { oneDark } from "@codemirror/theme-one-dark";
-    import { isEditorOpen } from './stores';
 
     export let socket: WebSocket | null;
-    export let visible: boolean;
     export let fileName: string = "script.lua";
 
-    let editorView: EditorView | null = null;
     let runScriptButton: HTMLButtonElement;
-    let prevVisible = false;
-
-    afterUpdate(() => {
-        if (visible && !prevVisible) {
-            setTimeout(() => {
-                editorView?.focus();
-            }, 50);
-        }
-        prevVisible = visible;
-    });
 
     const customTheme = EditorView.theme({
         "&": { color: "#d1d5db", backgroundColor: "#1F2937" },
@@ -50,8 +37,8 @@ hello()
     });
 
     function runScript() {
-        if (!editorView || !socket || socket.readyState !== WebSocket.OPEN) return;
-        const scriptContent = editorView.state.doc.toString().trim();
+        if (!socket || socket.readyState !== WebSocket.OPEN) return;
+        const scriptContent = value.trim();
         if (scriptContent && !runScriptButton.disabled) {
             console.log("Running script:", scriptContent);
 
@@ -77,7 +64,6 @@ hello()
         <div id="editor-container">
             <CodeMirror 
                 bind:value 
-                bind:view={editorView} 
                 lang={StreamLanguage.define(lua)} 
                 theme={oneDark} 
                 extensions={[

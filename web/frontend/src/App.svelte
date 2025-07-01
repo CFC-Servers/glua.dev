@@ -129,7 +129,7 @@
     {#if $isEditorOpen}
       <div id="resizer" on:mousedown={handleMouseDown}></div>
       <div bind:this={editorPanel} class="h-full" style="width: 33%;">
-        <Editor {socket} visible={$isEditorOpen} />
+        <Editor {socket} />
       </div>
     {/if}
   {/if}

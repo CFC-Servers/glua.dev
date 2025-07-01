@@ -372,7 +372,8 @@ func listenForCommands(ctx context.Context, c *websocket.Conn) {
                 case "SCRIPT":
                     script, ok := msg.Payload.(ScriptPayload)
                     if !ok {
-                        log.Println("Received invalid script payload.")
+                        // log the structure
+                        log.Printf("Received invalid script payload: %v", msg.Payload)
                         continue
                     }
 
