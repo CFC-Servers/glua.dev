@@ -14,6 +14,7 @@ pidfile="gmod.pid"
 
 # Dirs
 mkdir -p "$server/data"
+mkdir -p "$server/lua/gluadev"
 touch "$server/console.log"
 
 # Screen setup
@@ -84,15 +85,16 @@ fi
 echo ""
 echo ""
 echo "Waiting for server to start..."
-timeout 1m bash -c "until [ -f '$server/$pidfile' ]; do sleep 0.25; done"
+timeout 1m bash -c "until [ -f '$server/$pidfile' ]; do sleep 0.1; done"
 if [ ! -f "$server/$pidfile" ]; then
     echo "Server did not start in time, exiting"
     cat "$server/console.log"
     exit 1
 fi
 
+pid=$(cat "$server/$pidfile")
 echo "Server started successfully"
-echo "Server PID: $(cat "$server/$pidfile")"
+echo "Server PID: $pid"
 echo ""
 echo ""
 
@@ -100,7 +102,6 @@ echo ""
 echo ""
 echo "Server console output:"
 
-pid=$(cat "$server/$pidfile")
 tail \
     --follow=name \
     --retry \

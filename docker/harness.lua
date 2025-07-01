@@ -5,6 +5,10 @@ local Harness = {
     --- The diretory in `lua/` where scripts are saved and executed
     scriptDir = "gluadev",
 
+    --- Script names that have already been seen and executed
+    --- (This is poopy but will be fine for now)
+    seenScripts = {},
+
     debug = true,
 }
 
@@ -29,6 +33,7 @@ local logger = {} do
     --- Generic logging function
     local function _log( ... )
         MsgC( colors.mintgreen, "[GLuaDev] ", ... )
+        MsgC( "\n" )
     end
 
     --- Log an info message
@@ -57,40 +62,34 @@ local logger = {} do
 end
 
 do
-    local file_Exists = file.Exists
-    local file_CreateDir = file.CreateDir
-
-    function Harness:InitDirs()
-        if not file_Exists( self.scriptDir, "LUA" ) then
-            logger:Debug( "Creating script directory: ", self.scriptDir )
-            file_CreateDir( self.scriptDir )
-        end
-    end
-end
-
-do
     local ipairs = ipairs
     local include = include
     local file_Find = file.Find
-    local file_Delete = file.Delete
     local timer_Simple = timer.Simple
     local ProtectedCall = ProtectedCall
 
-    function Harness:CreateScriptWatcher()
-        local findString = self.scriptDir .. "/*.lua"
+    local scriptDir = Harness.scriptDir
+    local seenScripts = Harness.seenScripts
+
+    local function processFile( filename )
+        if seenScripts[filename] then return end
+
+        seenScripts[filename] = true
+        logger:Info( "Executing: ", logger.colors.lime, filename )
+
+        -- Load and execute the script
+        local scriptPath = scriptDir .. "/" .. filename
+        ProtectedCall( include, scriptPath )
+    end
+
+    function Harness.CreateScriptWatcher()
+        local findString = scriptDir .. "/*.lua"
 
         local function tick()
-            local files = file_Find( findString, "LUA" )
+            local foundFiles = file_Find( findString, "LUA" )
 
-            for _, filename in ipairs( files ) do
-                logger:Info( "Executing: ", logger.colors.lime, filename )
-
-                -- Load, execute, and delete the script
-                -- TODO: Eventually we may want to save the script for re-running, or supporting multi-file setups
-                local scriptPath = self.scriptDir .. "/" .. filename
-                ProtectedCall( include, scriptPath )
-
-                file_Delete( scriptPath, "LUA" )
+            for _, filename in ipairs( foundFiles ) do
+                processFile( filename )
             end
 
             timer_Simple( 0.25, tick )
@@ -101,8 +100,7 @@ do
 end
 
 function Harness:Init()
-    self:InitDirs()
-    self:CreateScriptWatcher()
+    self.CreateScriptWatcher()
 end
 
 Harness:Init()

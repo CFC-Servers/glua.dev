@@ -8,7 +8,7 @@
     import { oneDark } from "@codemirror/theme-one-dark";
 
     export let socket: WebSocket | null;
-    export let fileName: string = "script.lua";
+    export let fileName: string = "script";
 
     let runScriptButton: HTMLButtonElement;
 

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"log"
 	"net/url"
 	"os"
@@ -49,6 +50,7 @@ var (
 	pidFilePath = "/home/steam/gmodserver/garrysmod/gmod.pid"
 	metadataDir = "/home/steam/metadata"
 	scriptDir   = "/home/steam/gmodserver/garrysmod/lua/gluadev"
+	scriptCount = 0
 
 	gameBranch   string
 	gameVersion  string
@@ -113,6 +115,18 @@ func getGameVersionString() string {
         log.Printf("Unknown GMOD branch: %s, defaulting to 'public'", versionName)
         return "public"
     }
+}
+
+var nonAlphanum = regexp.MustCompile("[^a-zA-Z0-9]+")
+func cleanFileName(fileName string) string {
+    sanitized := nonAlphanum.ReplaceAllString(fileName, "")
+
+	// Check if the resulting string is empty.
+	if sanitized == "" {
+		return "script"
+	}
+
+	return sanitized
 }
 
 // webSocketWriter is the only goroutine permitted to write to the WebSocket connection.
@@ -382,11 +396,14 @@ func listenForCommands(ctx context.Context, c *websocket.Conn) {
                         continue
                     }
 
-                    scriptPath := filepath.Join(scriptDir, script.Name)
+                    scriptCount++
+                    cleanName := cleanFileName(script.Name)
+                    nameWithCount := fmt.Sprintf("%s_%d.lua", cleanName, scriptCount)
+
+                    scriptPath := filepath.Join(scriptDir, nameWithCount)
                     contents := []byte(script.Content)
 
                     log.Printf("Saving Script to : %s", scriptPath)
-                    log.Printf("Script contents: %s", contents)
 
                     if err := os.WriteFile(scriptPath, contents, 0644); err != nil {
                         log.Printf("Error writing script file: %v", err)
