@@ -13,6 +13,7 @@ import (
 	"sync"
 	"syscall"
 	"time"
+	"encoding/json"
 
 	"github.com/gorilla/websocket"
 	"github.com/hpcloud/tail"
@@ -20,7 +21,12 @@ import (
 	"github.com/shirou/gopsutil/v3/disk"
 )
 
-type WebSocketMessage struct {
+type WebSocketMessageIn struct {
+	Type    string      `json:"type"`
+	Payload json.RawMessage `json:"payload,omitempty"`
+}
+
+type WebSocketMessageOut struct {
 	Type    string      `json:"type"`
 	Payload interface{} `json:"payload,omitempty"`
 }
@@ -74,7 +80,7 @@ func main() {
 	}
 	log.Println("Connection established with worker.")
 
-	writeChan := make(chan WebSocketMessage, 32)
+	writeChan := make(chan WebSocketMessageOut, 32)
 	go webSocketWriter(conn, writeChan)
 
 	sendMetadata(writeChan)
@@ -110,7 +116,7 @@ func getGameVersionString() string {
 }
 
 // webSocketWriter is the only goroutine permitted to write to the WebSocket connection.
-func webSocketWriter(c *websocket.Conn, writeChan <-chan WebSocketMessage) {
+func webSocketWriter(c *websocket.Conn, writeChan <-chan WebSocketMessageOut) {
 	defer c.Close()
 	for message := range writeChan {
 		if err := c.WriteJSON(message); err != nil {
@@ -169,7 +175,7 @@ func connectToWorker(ctx context.Context) (*websocket.Conn, error) {
 }
 
 // monitorGameProcess checks if the game server process is still running.
-func monitorGameProcess(ctx context.Context, pid int, writeChan chan<- WebSocketMessage, cancel context.CancelFunc) {
+func monitorGameProcess(ctx context.Context, pid int, writeChan chan<- WebSocketMessageOut, cancel context.CancelFunc) {
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
 
@@ -195,8 +201,8 @@ func monitorGameProcess(ctx context.Context, pid int, writeChan chan<- WebSocket
 	}
 }
 
-func sendMetadata(writeChan chan<- WebSocketMessage) {
-	message := WebSocketMessage{
+func sendMetadata(writeChan chan<- WebSocketMessageOut) {
+	message := WebSocketMessageOut{
 		Type: "METADATA",
 		Payload: map[string]string{
 			"branch":       gameBranch,
@@ -207,12 +213,12 @@ func sendMetadata(writeChan chan<- WebSocketMessage) {
 	writeChan <- message
 }
 
-func shutdown(writeChan chan<- WebSocketMessage, cancel context.CancelFunc) {
+func shutdown(writeChan chan<- WebSocketMessageOut, cancel context.CancelFunc) {
 	shutdownOnce.Do(func() {
 		log.Println("Initiating shutdown sequence...")
 		cancel()
 
-		writeChan <- WebSocketMessage{Type: "AGENT_SHUTDOWN", Payload: "Agent is shutting down."}
+		writeChan <- WebSocketMessageOut{Type: "AGENT_SHUTDOWN", Payload: "Agent is shutting down."}
 
 		close(writeChan)
 
@@ -225,7 +231,7 @@ func shutdown(writeChan chan<- WebSocketMessage, cancel context.CancelFunc) {
 
 // --- WebSocket Communication Goroutines ---
 
-func dumpInitialLogs(writeChan chan<- WebSocketMessage) {
+func dumpInitialLogs(writeChan chan<- WebSocketMessageOut) {
 	initialContent, err := os.ReadFile(logFilePath)
 	if err != nil {
 		if !os.IsNotExist(err) {
@@ -234,12 +240,12 @@ func dumpInitialLogs(writeChan chan<- WebSocketMessage) {
 		return
 	}
 	if len(initialContent) > 0 {
-		message := WebSocketMessage{Type: "HISTORY_DUMP", Payload: strings.Split(string(initialContent), "\n")}
+		message := WebSocketMessageOut{Type: "HISTORY_DUMP", Payload: strings.Split(string(initialContent), "\n")}
 		writeChan <- message
 	}
 }
 
-func tailLogs(ctx context.Context, writeChan chan<- WebSocketMessage) {
+func tailLogs(ctx context.Context, writeChan chan<- WebSocketMessageOut) {
 	time.Sleep(250 * time.Millisecond)
 	t, err := tail.TailFile(logFilePath, tail.Config{Follow: true, ReOpen: true, MustExist: false})
 	if err != nil {
@@ -259,7 +265,7 @@ func tailLogs(ctx context.Context, writeChan chan<- WebSocketMessage) {
 			if line == nil {
 				continue
 			}
-			message := WebSocketMessage{Type: "LOG", Payload: line.Text}
+			message := WebSocketMessageOut{Type: "LOG", Payload: line.Text}
 			select {
 			case writeChan <- message:
 			case <-ctx.Done():
@@ -269,7 +275,7 @@ func tailLogs(ctx context.Context, writeChan chan<- WebSocketMessage) {
 	}
 }
 
-func sendHealthStats(ctx context.Context, writeChan chan<- WebSocketMessage) {
+func sendHealthStats(ctx context.Context, writeChan chan<- WebSocketMessageOut) {
 	ticker := time.NewTicker(500 * time.Millisecond)
 	defer ticker.Stop()
 
@@ -290,7 +296,7 @@ func sendHealthStats(ctx context.Context, writeChan chan<- WebSocketMessage) {
 			CPUUsage:  cpuPercentages[0],
 			DiskUsage: diskStat.UsedPercent,
 		}
-		message := WebSocketMessage{Type: "HEALTH", Payload: stats}
+		message := WebSocketMessageOut{Type: "HEALTH", Payload: stats}
 		select {
 		case writeChan <- message:
 		case <-ctx.Done():
@@ -310,7 +316,7 @@ func sendHealthStats(ctx context.Context, writeChan chan<- WebSocketMessage) {
 }
 
 type readResult struct {
-	msg WebSocketMessage
+	msg WebSocketMessageIn
 	err error
 }
 
@@ -321,7 +327,7 @@ func listenForCommands(ctx context.Context, c *websocket.Conn) {
 		defer close(readChan)
 
 		for {
-			var msg WebSocketMessage
+			var msg WebSocketMessageIn
 			err := c.ReadJSON(&msg)
 
 			select {
@@ -358,9 +364,9 @@ func listenForCommands(ctx context.Context, c *websocket.Conn) {
 			msg := result.msg
 			switch msg.Type {
                 case "COMMAND":
-                    command, ok := msg.Payload.(string)
-                    if !ok {
-                        log.Println("Received invalid command payload.")
+                    var command string
+                    if err := json.Unmarshal(msg.Payload, &command); err != nil {
+                        log.Printf("Error unmarshalling command payload: %v", err)
                         continue
                     }
 
@@ -370,10 +376,9 @@ func listenForCommands(ctx context.Context, c *websocket.Conn) {
                         log.Printf("Error executing command: %v", err)
                     }
                 case "SCRIPT":
-                    script, ok := msg.Payload.(ScriptPayload)
-                    if !ok {
-                        // log the structure
-                        log.Printf("Received invalid script payload: %v", msg.Payload)
+                    var script ScriptPayload
+                    if err := json.Unmarshal(msg.Payload, &script); err != nil {
+                        log.Printf("Error unmarshalling script payload: %v", err)
                         continue
                     }
 
