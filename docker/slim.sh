@@ -1,5 +1,9 @@
+branch=$1 # Branch name
+version=$2 # Game version
+tag=$3 # Gluadev tag
+
 slim build \
-    --target glua-dev:latest \
+    --target "glua-dev-$branch-fat" \
     --http-probe-off \
     --continue-after 30 \
     --show-clogs --show-blogs \
@@ -11,5 +15,7 @@ slim build \
     --include-path "/home/steam/metadata" \
     --include-shell \
     --expose 8080 \
-    --tag glua-dev-slim:latest \
+    --tag "glua-dev-$branch:latest" \
+    --tag "glua-dev-$branch:$version" \
+    --tag "glua-dev-$branch:$tag"
 
