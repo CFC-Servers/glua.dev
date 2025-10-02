@@ -7,11 +7,13 @@
 		"dev": "wrangler dev",
 		"start": "wrangler dev",
 		"build": "npm run build --prefix frontend",
-		"build:deploy": "npm run build && npm run deploy"
+		"build:deploy": "npm run build --prefix frontend && npm run deploy"
 	},
 	"devDependencies": {
 		"@cloudflare/workers-types": "^4.20250620.0",
+		"@sveltejs/vite-plugin-svelte": "^6.2.1",
 		"@tailwindcss/vite": "^4.1.11",
+		"@tsconfig/svelte": "^5.0.5",
 		"autoprefixer": "^10.4.21",
 		"postcss": "^8.5.6",
 		"tailwindcss": "^4.1.11",

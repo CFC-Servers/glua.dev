@@ -15,7 +15,4 @@ slim build \
     --include-path "/home/steam/metadata" \
     --include-shell \
     --expose 8080 \
-    --tag "glua-dev-$branch:latest" \
-    --tag "glua-dev-$branch:$version" \
-    --tag "glua-dev-$branch:$tag"
-
+    --tag "glua-dev-$branch:cf"

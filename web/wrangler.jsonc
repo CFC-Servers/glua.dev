@@ -21,21 +21,21 @@
             "max_instances": 10,
             "name": "glua-dev-gmod-public",
             "class_name": "GmodPublic",
-            "image": "registry.cloudflare.com/dbf79eb4394912bf04f2408ce80546a4/glua-dev-public:latest",
+            "image": "registry.cloudflare.com/dbf79eb4394912bf04f2408ce80546a4/glua-dev-public:cf",
             "instance_type": "standard"
         },
         {
             "max_instances": 5,
             "name": "glua-dev-gmod-sixty-four",
             "class_name": "GmodSixtyFour",
-            "image": "registry.cloudflare.com/dbf79eb4394912bf04f2408ce80546a4/glua-dev-sixtyfour:latest",
+            "image": "registry.cloudflare.com/dbf79eb4394912bf04f2408ce80546a4/glua-dev-sixtyfour:cf",
             "instance_type": "standard"
         },
         {
             "max_instances": 2,
             "name": "glua-dev-gmod-prerelease",
             "class_name": "GmodPrerelease",
-            "image": "registry.cloudflare.com/dbf79eb4394912bf04f2408ce80546a4/glua.dev/prerelease:cf",
+            "image": "registry.cloudflare.com/dbf79eb4394912bf04f2408ce80546a4/glua-dev-prerelease:cf",
             "instance_type": "standard"
         },
         {
