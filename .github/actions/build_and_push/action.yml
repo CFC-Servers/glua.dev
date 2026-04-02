@@ -131,18 +131,27 @@ runs:
         CLOUDFLARE_ACCOUNT_ID: ${{ inputs.cloudflare_account_id }}
       run: |
         if [ "${{ inputs.gmod_branch }}" = "x86-64" ]; then
-          docker tag "ghcr.io/cfc-servers/glua.dev/64bit:latest" "glua.dev/64bit:cf"
-          npx wrangler containers push "glua.dev/64bit:cf"
+          docker tag "ghcr.io/cfc-servers/glua.dev/64bit:latest" "glua-dev-sixtyfour:cf"
+          npx wrangler containers push "glua-dev-sixtyfour:cf"
 
         elif [ "${{ inputs.gmod_branch }}" = "dev" ]; then
-          docker tag "ghcr.io/cfc-servers/glua.dev/dev:latest" "glua.dev/dev:cf"
-          npx wrangler containers push "glua.dev/dev:cf"
+          docker tag "ghcr.io/cfc-servers/glua.dev/dev:latest" "glua-dev-dev:cf"
+          npx wrangler containers push "glua-dev-dev:cf"
 
         elif [ "${{ inputs.gmod_branch }}" = "prerelease" ]; then
-          docker tag "ghcr.io/cfc-servers/glua.dev/prerelease:latest" "glua.dev/prerelease:cf"
-          npx wrangler containers push "glua.dev/prerelease:cf"
+          docker tag "ghcr.io/cfc-servers/glua.dev/prerelease:latest" "glua-dev-prerelease:cf"
+          npx wrangler containers push "glua-dev-prerelease:cf"
 
         else
-          docker tag "ghcr.io/cfc-servers/glua.dev:latest" "glua.dev:cf"
-          npx wrangler containers push "glua.dev:cf"
+          docker tag "ghcr.io/cfc-servers/glua.dev:latest" "glua-dev-public:cf"
+          npx wrangler containers push "glua-dev-public:cf"
         fi
+
+    - name: Deploy Worker to roll out new container image
+      shell: bash
+      env:
+        CLOUDFLARE_API_TOKEN: ${{ inputs.cloudflare_token }}
+        CLOUDFLARE_ACCOUNT_ID: ${{ inputs.cloudflare_account_id }}
+      run: |
+        cd ${{ inputs.path }}/web
+        npx wrangler deploy
