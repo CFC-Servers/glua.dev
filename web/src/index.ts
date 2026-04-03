@@ -109,6 +109,7 @@ export class BaseSession extends Container<Env> {
     this.broadcastToBrowsers("SESSION_TIMER", this.sessionTimerPayload());
 
     this.broadcastToBrowsers("LOGS", ["\u001b[32mAgent connected. Session is live.\u001b[0m"]);
+    this.renewActivityTimeout();
     this.ctx.storage.setAlarm(Date.now() + ACTIVITY_PING_INTERVAL);
 
     ws.addEventListener("message", this.onAgentMessage);
@@ -187,6 +188,7 @@ export class BaseSession extends Container<Env> {
 
   override onStart(): void {
     this.broadcastToBrowsers("LOGS", ["\u001b[33mContainer started. Waiting for agent...\u001b[0m"]);
+    this.renewActivityTimeout();
   }
 
   override async onStop(): Promise<void> {

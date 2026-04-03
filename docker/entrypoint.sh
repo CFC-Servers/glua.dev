@@ -102,14 +102,8 @@ echo ""
 echo ""
 echo "Server console output:"
 
-tail \
-    --follow=name \
-    --retry \
-    --lines=500 \
-    --sleep-interval=0.25 \
-    --quiet \
-    --pid "$pid" \
-    "$server/console.log"
+while screen -list | grep -q "gmod"; do
+    sleep 1
+done
 
 echo "Server has stopped - exiting"
-kill -9 $pid 2>/dev/null
