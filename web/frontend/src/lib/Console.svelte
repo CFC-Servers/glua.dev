@@ -5,6 +5,13 @@
     import StatusPanel from "./StatusPanel.svelte";
     import SessionEndedCard from "./SessionEndedCard.svelte";
 
+    function appendEndedCard(container: HTMLElement, sessionId: string) {
+        const target = document.createElement("div");
+        container.appendChild(target);
+        new SessionEndedCard({ target, props: { sessionId } });
+        container.scrollTop = container.scrollHeight;
+    }
+
     export let socket: WebSocket | null;
     export let readonlyLogs: string | null = null;
     export let sessionId: string | null = null;
@@ -29,6 +36,11 @@
                 const threshold = 5;
                 this.isAtBottom = this.container.scrollHeight - this.container.scrollTop - this.container.clientHeight < threshold;
             });
+            new ResizeObserver(() => {
+                if (this.isAtBottom) {
+                    this.container.scrollTop = this.container.scrollHeight;
+                }
+            }).observe(this.container);
         }
 
         addLines(lines: string[]) {
@@ -104,6 +116,7 @@
             }
 
             commandInput.disabled = true;
+            if (sessionId) appendEndedCard(outputContainer, sessionId);
             outputContainer.scrollTop = outputContainer.scrollHeight;
         } else if (socket) {
             setupWebSocketHandlers();
@@ -140,6 +153,7 @@
                         virtualConsole.addLines(["\u001b[31mSession has been closed by the server.\u001b[0m"]);
                         sessionState.set("closed");
                         commandInput.disabled = true;
+                        if (sessionId) appendEndedCard(outputContainer, sessionId);
                         socket?.close();
                         break;
                     case "SCRIPT_EXECUTED":
@@ -207,9 +221,6 @@
     <StatusPanel {socket} />
     
     <div bind:this={outputContainer} class="flex-grow overflow-y-auto overflow-x-hidden p-4"></div>
-    {#if $sessionState === "closed" && sessionId}
-        <SessionEndedCard {sessionId} />
-    {/if}
     <div class="mt-auto p-4">
         <div class="flex items-center border-t border-gray-700 pt-3">
             <span class="{inactive ? 'text-gray-600' : 'text-green-400'} mr-2 shrink-0">&gt;</span>
