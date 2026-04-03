@@ -88,7 +88,6 @@
                         {#if sessionDuration}
                             <div class="text-gray-400">Session duration: <span class="text-gray-200">{sessionDuration}</span></div>
                         {/if}
-                        <div class="flex justify-between"><span class="text-gray-400">Started:</span><span class="font-mono text-gray-200">{new Date($sessionMetadata.startedAt).toLocaleString()}</span></div>
                         <div class="border-t border-gray-700 my-2"></div>
                         <SessionMetadata />
                     {/if}
