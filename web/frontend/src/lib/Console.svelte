@@ -6,12 +6,15 @@
     import StatusPanel from "./StatusPanel.svelte";
     import SessionEndedCard from "./SessionEndedCard.svelte";
 
-    async function appendEndedCard(container: HTMLElement) {
+    function appendEndedCard(container: HTMLElement) {
         const target = document.createElement("div");
         container.appendChild(target);
         mount(SessionEndedCard, { target });
-        await tick();
-        container.scrollTop = container.scrollHeight;
+        requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+                container.scrollTop = container.scrollHeight;
+            });
+        });
     }
 
     export let socket: WebSocket | null;
