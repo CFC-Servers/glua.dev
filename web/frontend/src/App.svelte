@@ -4,7 +4,7 @@
   import Console from "./lib/Console.svelte";
   import Editor from "./lib/Editor.svelte";
   import ScriptViewer from "./lib/ScriptViewer.svelte";
-  import { isEditorOpen, sessionState, scriptMap } from "./lib/stores";
+  import { isEditorOpen, sessionState, scriptMap, sessionMetadata } from "./lib/stores";
 
   let session = { id: null, type: null };
   let socket: WebSocket | null = null;
@@ -70,6 +70,9 @@
         readonlyLogs = data.logs;
         if (data.scripts) {
           scriptMap.set(data.scripts);
+        }
+        if (data.metadata) {
+          sessionMetadata.set(data.metadata);
         }
         sessionState.set("readonly");
         return;

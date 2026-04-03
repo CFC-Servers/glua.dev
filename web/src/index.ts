@@ -118,7 +118,7 @@ export class BaseSession extends Container<Env> {
     // Restore logs and scripts from R2 and buffer for the new client
     this.ctx.blockConcurrencyWhile(async () => {
         try {
-            const logKey = `logs/${sessionId}.log`;
+            const logKey = `sessions/${sessionId}/logs.log`;
             const existingLogs = await this.env.LOG_BUCKET.get(logKey);
             let fullLogContent = "";
             if (existingLogs) {
@@ -136,11 +136,12 @@ export class BaseSession extends Container<Env> {
             }
 
             // Restore scripts from R2 + in-memory buffer
-            const scriptKey = `scripts/${sessionId}.json`;
-            const existingScripts = await this.env.LOG_BUCKET.get(scriptKey);
+            const sessionKey = `sessions/${sessionId}/session.json`;
+            const existingSession = await this.env.LOG_BUCKET.get(sessionKey);
             let allScripts: Record<string, { content: string; logLine: number }> = {};
-            if (existingScripts) {
-                allScripts = JSON.parse(await existingScripts.text());
+            if (existingSession) {
+                const sessionData = JSON.parse(await existingSession.text());
+                allScripts = sessionData.scripts || {};
             }
             Object.assign(allScripts, this.scriptBuffer);
             if (Object.keys(allScripts).length > 0) {
@@ -263,7 +264,7 @@ export class BaseSession extends Container<Env> {
     });
 
     await this.flushLogsToR2();
-    await this.flushScriptsToR2();
+    await this.flushSessionToR2();
     await this.notifyQueueManagerOfClosure();
 
     try { await this.stop(); }
@@ -281,7 +282,7 @@ export class BaseSession extends Container<Env> {
 
   async alarm() {
     await this.flushLogsToR2();
-    await this.flushScriptsToR2();
+    await this.flushSessionToR2();
 
     if (this.sessionState === "ACTIVE") {
       this.renewActivityTimeout();
@@ -291,7 +292,7 @@ export class BaseSession extends Container<Env> {
 
   async flushLogsToR2() {
     if (this.logBuffer.length === 0) return;
-    const logKey = `logs/${this.ctx.id.name!}.log`;
+    const logKey = `sessions/${this.ctx.id.name!}/logs.log`;
     const logsToFlush = this.logBuffer.join("\n") + "\n";
     this.logBuffer = [];
 
@@ -307,21 +308,29 @@ export class BaseSession extends Container<Env> {
     }
   }
 
-  async flushScriptsToR2() {
-    if (Object.keys(this.scriptBuffer).length === 0) return;
-    const scriptKey = `scripts/${this.ctx.id.name!}.json`;
+  async flushSessionToR2() {
+    const hasNewScripts = Object.keys(this.scriptBuffer).length > 0;
+    if (!hasNewScripts && !this.sessionMetadata) return;
+
+    const sessionKey = `sessions/${this.ctx.id.name!}/session.json`;
 
     try {
-      const existing = await this.env.LOG_BUCKET.get(scriptKey);
-      let allScripts: Record<string, { content: string; logLine: number }> = {};
+      const existing = await this.env.LOG_BUCKET.get(sessionKey);
+      let session: { metadata: typeof this.sessionMetadata; scripts: Record<string, { content: string; logLine: number }> } = {
+        metadata: null,
+        scripts: {},
+      };
       if (existing) {
-        allScripts = JSON.parse(await existing.text());
+        session = JSON.parse(await existing.text());
       }
-      Object.assign(allScripts, this.scriptBuffer);
-      await this.env.LOG_BUCKET.put(scriptKey, JSON.stringify(allScripts));
+      if (this.sessionMetadata) {
+        session.metadata = this.sessionMetadata;
+      }
+      Object.assign(session.scripts, this.scriptBuffer);
+      await this.env.LOG_BUCKET.put(sessionKey, JSON.stringify(session));
       this.scriptBuffer = {};
     } catch (e) {
-      console.error(`Failed to flush scripts for DO ${this.ctx.id.name!}:`, e);
+      console.error(`Failed to flush session data for DO ${this.ctx.id.name!}:`, e);
     }
   }
 
@@ -461,7 +470,7 @@ export default {
       if (!sessionId) {
         return new Response("Missing session param", { status: 400 });
       }
-      const logKey = `logs/${sessionId}.log`;
+      const logKey = `sessions/${sessionId}/logs.log`;
       const logObject = await env.LOG_BUCKET.get(logKey);
       if (!logObject) {
         return new Response(JSON.stringify({ exists: false }), {
@@ -469,10 +478,12 @@ export default {
         });
       }
       const logs = await logObject.text();
-      const scriptKey = `scripts/${sessionId}.json`;
-      const scriptObject = await env.LOG_BUCKET.get(scriptKey);
-      const scripts = scriptObject ? JSON.parse(await scriptObject.text()) : {};
-      return new Response(JSON.stringify({ exists: true, logs, scripts }), {
+      const sessionKey = `sessions/${sessionId}/session.json`;
+      const sessionObject = await env.LOG_BUCKET.get(sessionKey);
+      const sessionData = sessionObject ? JSON.parse(await sessionObject.text()) : {};
+      const scripts = sessionData.scripts || {};
+      const metadata = sessionData.metadata || null;
+      return new Response(JSON.stringify({ exists: true, logs, scripts, metadata }), {
         headers: { "Content-Type": "application/json" },
       });
     }
