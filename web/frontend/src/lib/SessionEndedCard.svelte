@@ -10,7 +10,7 @@
 </script>
 
 <div class="p-4">
-    <div class="bg-gray-800 border border-gray-700/50 rounded-lg px-5 py-4 text-center max-w-sm mx-auto">
+    <div class="bg-gray-800 border border-gray-700/50 rounded-lg px-5 py-4 max-w-sm text-center">
         <p class="text-white font-semibold text-sm mb-1">Thanks for using glua.dev! 👋</p>
         <p class="text-gray-400 text-xs mb-3">Free forever, with 💖 from <a href="https://github.com/CFC-Servers" target="_blank" rel="noopener noreferrer" class="text-indigo-400 hover:text-indigo-300 hover:underline">CFC Servers</a></p>
         <div class="flex gap-2 justify-center">
