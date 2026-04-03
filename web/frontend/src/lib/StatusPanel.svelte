@@ -84,10 +84,10 @@
             {#if inactive}
                 <div class="px-4 pb-4 font-mono text-xs space-y-2">
                     <div class="text-gray-400">{$sessionState === "readonly" ? "Viewing saved session" : "Process exited"}</div>
-                    {#if sessionDuration}
-                        <div class="text-gray-400">Session duration: <span class="text-gray-200">{sessionDuration}</span></div>
-                    {/if}
                     {#if $sessionMetadata}
+                        {#if sessionDuration}
+                            <div class="text-gray-400">Session duration: <span class="text-gray-200">{sessionDuration}</span></div>
+                        {/if}
                         <div class="border-t border-gray-700 my-2"></div>
                         <SessionMetadata />
                     {/if}
