@@ -102,6 +102,7 @@
             }
 
             commandInput.disabled = true;
+            outputContainer.scrollTop = outputContainer.scrollHeight;
         } else if (socket) {
             setupWebSocketHandlers();
         }

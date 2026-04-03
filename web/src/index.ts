@@ -25,7 +25,7 @@ export class BaseSession extends Container<Env> {
   logLineCount: number;
   scriptBuffer: Record<string, { content: string; logLine: number }>;
   scriptCount: number;
-  sessionMetadata: { branch: string; gameVersion: string; containerTag: string } | null;
+  sessionMetadata: { branch: string; gameVersion: string; containerTag: string; startedAt: number } | null;
   sessionEndTime?: number;
 
   constructor(ctx: DurableObjectState, env: Env) {
@@ -204,7 +204,8 @@ export class BaseSession extends Container<Env> {
           this.broadcastToBrowsers("HEALTH", message.payload);
           break;
         case "METADATA":
-          this.sessionMetadata = message.payload as { branch: string; gameVersion: string; containerTag: string };
+          this.sessionMetadata = message.payload as { branch: string; gameVersion: string; containerTag: string; startedAt: number };
+          this.sessionMetadata.startedAt = Date.now();
           this.broadcastToBrowsers("CONTEXT_UPDATE", this.sessionMetadata);
           break;
         case "AGENT_SHUTDOWN":

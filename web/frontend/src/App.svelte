@@ -5,10 +5,11 @@
   import Editor from "./lib/Editor.svelte";
   import ScriptViewer from "./lib/ScriptViewer.svelte";
   import { isEditorOpen, sessionState, scriptMap, sessionMetadata } from "./lib/stores";
+  import SessionEndedCard from "./lib/SessionEndedCard.svelte";
 
   let session = { id: null, type: null };
   let socket: WebSocket | null = null;
-  let showModal = true;
+  let view: "modal" | "loading" | "not-found" | "console" = "modal";
   let readonlyLogs: string | null = null;
   let editorPanel: HTMLElement;
   let consolePanel: HTMLElement;
@@ -34,7 +35,13 @@
     const params = new URLSearchParams(window.location.search);
     const sessionId = params.get("session");
     const sessionType = params.get("type");
-    if (sessionId && sessionType) {
+    if (sessionId) {
+      if (sessionType) {
+        const cleanUrl = new URL(window.location.href);
+        cleanUrl.searchParams.delete("type");
+        window.history.replaceState({}, "", cleanUrl);
+      }
+      view = "loading";
       loadSession(sessionId, sessionType);
     }
 
@@ -59,14 +66,12 @@
     localStorage.setItem(EDITOR_OPEN_KEY, JSON.stringify(open));
   });
 
-  async function loadSession(sessionId: string, sessionType: string) {
+  async function loadSession(sessionId: string, sessionType: string | null) {
     try {
       const res = await fetch(`/api/session-logs?session=${sessionId}`);
       const data = await res.json();
       if (data.exists) {
         session.id = sessionId;
-        session.type = sessionType;
-        showModal = false;
         readonlyLogs = data.logs;
         if (data.scripts) {
           scriptMap.set(data.scripts);
@@ -75,19 +80,26 @@
           sessionMetadata.set(data.metadata);
         }
         sessionState.set("readonly");
+        view = "console";
         return;
       }
     } catch (e) {
       console.error("Failed to check session logs:", e);
+      view = "not-found";
+      return;
     }
-    connectWebSocket(sessionId, sessionType);
+    if (sessionType) {
+      connectWebSocket(sessionId, sessionType);
+    } else {
+      view = "not-found";
+    }
   }
 
   function connectWebSocket(sessionId: string, sessionType: string) {
     session.id = sessionId;
     session.type = sessionType;
     updateUrl();
-    showModal = false;
+    view = "console";
     const wsScheme = window.location.protocol === "https:" ? "wss://" : "ws://";
     const wsUrl = `${wsScheme}${window.location.host}/ws/browser?session=${sessionId}&type=${sessionType}`;
     socket = new WebSocket(wsUrl);
@@ -131,11 +143,23 @@
 
 <ScriptViewer />
 <main class="flex flex-row h-screen overflow-hidden">
-  {#if showModal}
+  {#if view === "modal"}
     <Modal on:startsession={(e) => connectWebSocket(e.detail.sessionId, e.detail.sessionType)} />
+  {:else if view === "loading"}
+    <div class="flex items-center justify-center w-full h-full bg-gray-900">
+      <span class="text-gray-500 font-mono text-sm">Loading session...</span>
+    </div>
+  {:else if view === "not-found"}
+    <div class="flex flex-col items-center justify-center w-full h-full bg-gray-900 gap-4">
+      <span class="text-gray-300 font-mono text-sm">Session history not found.</span>
+      <button on:click={() => { view = "modal"; window.history.replaceState({}, "", "/"); }} class="text-indigo-400 hover:text-indigo-300 font-mono text-sm transition-colors">Start a new session</button>
+    </div>
   {:else}
     <div bind:this={consolePanel} class="h-full relative">
       <Console {socket} {readonlyLogs} />
+      {#if $sessionState === "closed" && session.id}
+        <SessionEndedCard sessionId={session.id} />
+      {/if}
       <button id="editor-toggle-button" on:click={() => isEditorOpen.update(open => !open)} title="Toggle Editor (Ctrl+.)">
         {#if $isEditorOpen}
           <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
