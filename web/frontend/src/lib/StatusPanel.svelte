@@ -105,6 +105,7 @@
         }
     }
 
+    $: inactive = $sessionState === 'closed' || $sessionState === 'readonly';
     $: timeoutBarColor = timeoutPercentage > 50 ? 'bg-green-500' : timeoutPercentage > 20 ? 'bg-yellow-500' : 'bg-red-500';
     $: timeoutLabelColor = timeoutPercentage > 50 ? 'text-green-300' : timeoutPercentage > 20 ? 'text-yellow-300' : 'text-red-300';
 
@@ -113,13 +114,13 @@
 <div id="status-panel" class="absolute top-4 right-4 z-20 w-72" class:collapsed>
     <div class="bg-gray-800 rounded-lg shadow-lg border border-gray-700/50">
         <button on:click={() => collapsed = !collapsed} class="w-full flex justify-between items-center p-3 text-left focus:outline-none">
-            <span class="font-bold text-sm {$sessionState === 'closed' ? 'text-gray-400' : 'text-white'}">{$sessionState === 'closed' ? 'Session Ended' : 'Session Status'}</span>
+            <span class="font-bold text-sm {inactive ? 'text-gray-400' : 'text-white'}">{inactive ? 'Session Ended' : 'Session Status'}</span>
             <svg class="toggle-icon w-5 h-5 text-gray-400" class:rotate-180={collapsed} xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" /></svg>
         </button>
         <div class="panel-content">
-            {#if $sessionState === 'closed'}
+            {#if inactive}
                 <div class="px-4 pb-4 font-mono text-xs space-y-2">
-                    <div class="text-gray-400">Process exited</div>
+                    <div class="text-gray-400">{$sessionState === 'readonly' ? 'Viewing saved session' : 'Process exited'}</div>
                     {#if sessionDuration}
                         <div class="text-gray-400">Session duration: <span class="text-gray-200">{sessionDuration}</span></div>
                     {/if}

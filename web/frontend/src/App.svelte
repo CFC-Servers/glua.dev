@@ -3,11 +3,12 @@
   import Modal from "./lib/Modal.svelte";
   import Console from "./lib/Console.svelte";
   import Editor from "./lib/Editor.svelte";
-  import { isEditorOpen } from "./lib/stores";
+  import { isEditorOpen, sessionState } from "./lib/stores";
 
   let session = { id: null, type: null };
   let socket: WebSocket | null = null;
   let showModal = true;
+  let readonlyLogs: string | null = null;
   let editorPanel: HTMLElement;
   let consolePanel: HTMLElement;
   let resizing = false;
@@ -33,7 +34,7 @@
     const sessionId = params.get("session");
     const sessionType = params.get("type");
     if (sessionId && sessionType) {
-      connectWebSocket(sessionId, sessionType);
+      loadSession(sessionId, sessionType);
     }
 
     const editorOpen = localStorage.getItem(EDITOR_OPEN_KEY);
@@ -56,6 +57,24 @@
   isEditorOpen.subscribe(open => {
     localStorage.setItem(EDITOR_OPEN_KEY, JSON.stringify(open));
   });
+
+  async function loadSession(sessionId: string, sessionType: string) {
+    try {
+      const res = await fetch(`/api/session-logs?session=${sessionId}`);
+      const data = await res.json();
+      if (data.exists) {
+        session.id = sessionId;
+        session.type = sessionType;
+        showModal = false;
+        readonlyLogs = data.logs;
+        sessionState.set("readonly");
+        return;
+      }
+    } catch (e) {
+      console.error("Failed to check session logs:", e);
+    }
+    connectWebSocket(sessionId, sessionType);
+  }
 
   function connectWebSocket(sessionId: string, sessionType: string) {
     session.id = sessionId;
@@ -108,7 +127,7 @@
     <Modal on:startsession={(e) => connectWebSocket(e.detail.sessionId, e.detail.sessionType)} />
   {:else}
     <div bind:this={consolePanel} class="h-full relative">
-      <Console {socket} />
+      <Console {socket} {readonlyLogs} />
       <button id="editor-toggle-button" on:click={() => isEditorOpen.update(open => !open)} title="Toggle Editor (Ctrl+.)">
         {#if $isEditorOpen}
           <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">

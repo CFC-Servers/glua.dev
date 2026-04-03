@@ -405,6 +405,24 @@ export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
 
+    if (url.pathname === "/api/session-logs") {
+      const sessionId = url.searchParams.get("session");
+      if (!sessionId) {
+        return new Response("Missing session param", { status: 400 });
+      }
+      const logKey = `logs/${sessionId}.log`;
+      const logObject = await env.LOG_BUCKET.get(logKey);
+      if (!logObject) {
+        return new Response(JSON.stringify({ exists: false }), {
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      const logs = await logObject.text();
+      return new Response(JSON.stringify({ exists: true, logs }), {
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
     if (url.pathname.startsWith("/api/")) {
       const queueDO = env.QUEUE_DO.get(env.QUEUE_DO.idFromName("global-queue"));
       return queueDO.fetch(request);

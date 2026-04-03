@@ -14,6 +14,8 @@
 
     let runScriptButton: HTMLButtonElement;
 
+    $: inactive = $sessionState === 'closed' || $sessionState === 'readonly';
+
     const customTheme = EditorView.theme({
         "&": { color: "#d1d5db", backgroundColor: "#1F2937" },
         ".cm-content": { caretColor: "#60a5fa" },
@@ -77,11 +79,11 @@ hello()
             />
         </div>
         <div id="editor-footer">
-            <button bind:this={runScriptButton} on:click={runScript} id="run-script-button" class="{$sessionState === 'closed' ? 'session-ended' : ''}" title="{$sessionState === 'closed' ? 'Session ended' : 'Run Script (Ctrl+Enter)'}" disabled={$sessionState === 'closed'}>
+            <button bind:this={runScriptButton} on:click={runScript} id="run-script-button" class="{inactive ? 'session-ended' : ''}" title="{inactive ? 'Session ended' : 'Run Script (Ctrl+Enter)'}" disabled={inactive}>
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
                     <path d="M9.222 5.934a.5.5 0 00-.722.434v7.264a.5.5 0 00.722.434l6-3.632a.5.5 0 000-.868l-6-3.632z" />
                 </svg>
-                <span>{$sessionState === 'closed' ? 'Session Ended' : 'Run'}</span>
+                <span>{inactive ? 'Session Ended' : 'Run'}</span>
             </button>
         </div>
     </div>
