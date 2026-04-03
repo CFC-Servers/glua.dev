@@ -3,5 +3,9 @@ import { writable } from "svelte/store";
 export const isEditorOpen = writable(false);
 export type SessionState = "connecting" | "provisioning" | "active" | "closed" | "readonly";
 export const sessionState = writable<SessionState>("connecting");
-export const scriptMap = writable<Record<string, string>>({});
+export interface ScriptEntry {
+    content: string;
+    logLine: number;
+}
+export const scriptMap = writable<Record<string, ScriptEntry>>({});
 export const viewingScript = writable<{ name: string; content: string } | null>(null);

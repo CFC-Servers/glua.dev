@@ -64,9 +64,9 @@
 
             el.append(icon, nameSpan, hint);
             el.addEventListener("click", () => {
-                const scripts = get(scriptMap);
-                if (scripts[name]) {
-                    viewingScript.set({ name, content: scripts[name] });
+                const entry = get(scriptMap)[name];
+                if (entry) {
+                    viewingScript.set({ name, content: entry.content });
                 }
             });
             this.container.appendChild(el);
@@ -81,12 +81,26 @@
     onMount(() => {
         virtualConsole = new VirtualConsole(outputContainer);
         if (readonlyLogs) {
-            virtualConsole.addLines(readonlyLogs.split("\n"));
-            // Render clickable links for all scripts we have
+            const lines = readonlyLogs.split("\n");
             const scripts = get(scriptMap);
-            for (const name of Object.keys(scripts)) {
-                virtualConsole.addScriptLink(name);
+
+            // Build a list of script insertions sorted by log line position
+            const insertions = Object.entries(scripts)
+                .map(([name, entry]) => ({ name, logLine: entry.logLine }))
+                .sort((a, b) => a.logLine - b.logLine);
+
+            let insertIdx = 0;
+            for (let i = 0; i <= lines.length; i++) {
+                // Insert any script links that belong before this line
+                while (insertIdx < insertions.length && insertions[insertIdx].logLine <= i) {
+                    virtualConsole.addScriptLink(insertions[insertIdx].name);
+                    insertIdx++;
+                }
+                if (i < lines.length) {
+                    virtualConsole.addLines([lines[i]]);
+                }
             }
+
             commandInput.disabled = true;
         } else if (socket) {
             setupWebSocketHandlers();
@@ -126,7 +140,7 @@
                         socket?.close();
                         break;
                     case "SCRIPT_EXECUTED":
-                        scriptMap.update(m => ({ ...m, [msg.payload.name]: msg.payload.content }));
+                        scriptMap.update(m => ({ ...m, [msg.payload.name]: { content: msg.payload.content, logLine: msg.payload.logLine } }));
                         virtualConsole.addScriptLink(msg.payload.name);
                         break;
                     case "SCRIPT_HISTORY":

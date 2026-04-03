@@ -22,7 +22,8 @@ export class BaseSession extends Container<Env> {
   browserSockets: Set<WebSocket>;
   containerSocket: WebSocket | null;
   logBuffer: string[];
-  scriptBuffer: Record<string, string>;
+  logLineCount: number;
+  scriptBuffer: Record<string, { content: string; logLine: number }>;
   scriptCount: number;
   sessionMetadata: { branch: string; gameVersion: string; containerTag: string } | null;
   sessionEndTime?: number;
@@ -38,6 +39,7 @@ export class BaseSession extends Container<Env> {
     this.browserSockets = new Set();
     this.containerSocket = null;
     this.logBuffer = [];
+    this.logLineCount = 0;
     this.scriptBuffer = {};
     this.scriptCount = 0;
   }
@@ -136,7 +138,7 @@ export class BaseSession extends Container<Env> {
             // Restore scripts from R2 + in-memory buffer
             const scriptKey = `scripts/${sessionId}.json`;
             const existingScripts = await this.env.LOG_BUCKET.get(scriptKey);
-            let allScripts: Record<string, string> = {};
+            let allScripts: Record<string, { content: string; logLine: number }> = {};
             if (existingScripts) {
                 allScripts = JSON.parse(await existingScripts.text());
             }
@@ -194,6 +196,7 @@ export class BaseSession extends Container<Env> {
           // The agent is sending a new log line.
           const lines = Array.isArray(message.payload) ? message.payload : [message.payload];
           this.logBuffer.push(...lines);
+          this.logLineCount += lines.length;
           this.broadcastToBrowsers("LOGS", lines);
           break;
         case "HEALTH":
@@ -233,8 +236,8 @@ export class BaseSession extends Container<Env> {
             this.scriptCount++;
             const cleanName = (message.payload.name || "script").replace(/[^a-zA-Z0-9_-]/g, "_");
             const resolvedName = `${cleanName}_${this.scriptCount}.lua`;
-            this.scriptBuffer[resolvedName] = content;
-            this.broadcastToBrowsers("SCRIPT_EXECUTED", { name: resolvedName, content });
+            this.scriptBuffer[resolvedName] = { content, logLine: this.logLineCount };
+            this.broadcastToBrowsers("SCRIPT_EXECUTED", { name: resolvedName, content, logLine: this.logLineCount });
         }
         this.containerSocket.send(JSON.stringify(message));
       }
@@ -309,7 +312,7 @@ export class BaseSession extends Container<Env> {
 
     try {
       const existing = await this.env.LOG_BUCKET.get(scriptKey);
-      let allScripts: Record<string, string> = {};
+      let allScripts: Record<string, { content: string; logLine: number }> = {};
       if (existing) {
         allScripts = JSON.parse(await existing.text());
       }

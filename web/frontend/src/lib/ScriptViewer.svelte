@@ -35,7 +35,7 @@
 <svelte:window on:keydown={handleKeydown} />
 
 {#if $viewingScript}
-    <div class="fixed inset-0 bg-gray-900 bg-opacity-80 flex items-center justify-center z-50" on:click={handleBackdropClick}>
+    <div class="fixed inset-0 bg-gray-900 bg-opacity-80 flex items-center justify-center z-[60]" on:click={handleBackdropClick}>
         <div class="bg-gray-800 rounded-lg shadow-2xl w-full max-w-2xl max-h-[80vh] flex flex-col border border-gray-700/50">
             <div class="flex justify-between items-center px-4 py-3 border-b border-gray-700">
                 <span class="font-mono text-sm text-indigo-400">{$viewingScript.name}</span>
