@@ -3,9 +3,11 @@
     import { get } from "svelte/store";
     import { sessionState, scriptMap, viewingScript } from "./stores";
     import StatusPanel from "./StatusPanel.svelte";
+    import SessionEndedCard from "./SessionEndedCard.svelte";
 
     export let socket: WebSocket | null;
     export let readonlyLogs: string | null = null;
+    export let sessionId: string | null = null;
 
     let commandInput: HTMLInputElement;
     let outputContainer: HTMLDivElement;
@@ -205,6 +207,9 @@
     <StatusPanel {socket} />
     
     <div bind:this={outputContainer} class="flex-grow overflow-y-auto overflow-x-hidden p-4"></div>
+    {#if $sessionState === "closed" && sessionId}
+        <SessionEndedCard {sessionId} />
+    {/if}
     <div class="mt-auto p-4">
         <div class="flex items-center border-t border-gray-700 pt-3">
             <span class="{inactive ? 'text-gray-600' : 'text-green-400'} mr-2 shrink-0">&gt;</span>

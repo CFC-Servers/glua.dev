@@ -5,7 +5,6 @@
   import Editor from "./lib/Editor.svelte";
   import ScriptViewer from "./lib/ScriptViewer.svelte";
   import { isEditorOpen, sessionState, scriptMap, sessionMetadata } from "./lib/stores";
-  import SessionEndedCard from "./lib/SessionEndedCard.svelte";
 
   let session = { id: null, type: null };
   let socket: WebSocket | null = null;
@@ -36,11 +35,6 @@
     const sessionId = params.get("session");
     const sessionType = params.get("type");
     if (sessionId) {
-      if (sessionType) {
-        const cleanUrl = new URL(window.location.href);
-        cleanUrl.searchParams.delete("type");
-        window.history.replaceState({}, "", cleanUrl);
-      }
       view = "loading";
       loadSession(sessionId, sessionType);
     }
@@ -106,10 +100,10 @@
   }
 
   function updateUrl() {
-    if (!session.id || !session.type) return;
+    if (!session.id) return;
     const url = new URL(window.location);
     url.searchParams.set("session", session.id);
-    url.searchParams.set("type", session.type);
+    url.searchParams.delete("type");
     window.history.pushState({ ...session }, "", url);
   }
 
@@ -156,10 +150,7 @@
     </div>
   {:else}
     <div bind:this={consolePanel} class="h-full relative">
-      <Console {socket} {readonlyLogs} />
-      {#if $sessionState === "closed" && session.id}
-        <SessionEndedCard sessionId={session.id} />
-      {/if}
+      <Console {socket} {readonlyLogs} sessionId={session.id} />
       <button id="editor-toggle-button" on:click={() => isEditorOpen.update(open => !open)} title="Toggle Editor (Ctrl+.)">
         {#if $isEditorOpen}
           <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
