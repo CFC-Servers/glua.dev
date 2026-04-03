@@ -6,7 +6,7 @@
   import ScriptViewer from "./lib/ScriptViewer.svelte";
   import { isEditorOpen, sessionState, scriptMap, sessionMetadata } from "./lib/stores";
 
-  let session = { id: null, type: null };
+  let session = { id: null };
   let socket: WebSocket | null = null;
   let view: "modal" | "loading" | "not-found" | "console" = "modal";
   let readonlyLogs: string | null = null;
@@ -33,10 +33,9 @@
   onMount(() => {
     const params = new URLSearchParams(window.location.search);
     const sessionId = params.get("session");
-    const sessionType = params.get("type");
     if (sessionId) {
       view = "loading";
-      loadSession(sessionId, sessionType);
+      loadSession(sessionId);
     }
 
     const editorOpen = localStorage.getItem(EDITOR_OPEN_KEY);
@@ -60,17 +59,17 @@
     localStorage.setItem(EDITOR_OPEN_KEY, JSON.stringify(open));
   });
 
-  sessionState.subscribe(state => {
-    if (state === "closed" || state === "readonly") {
-      stripTypeFromUrl();
-    }
-  });
-
-  async function loadSession(sessionId: string, sessionType: string | null) {
+  async function loadSession(sessionId: string) {
     try {
-      const res = await fetch(`/api/session-logs?session=${sessionId}`);
+      const res = await fetch(`/api/session-status?session=${sessionId}`);
       const data = await res.json();
-      if (data.exists) {
+
+      if (data.status === "active") {
+        connectWebSocket(sessionId, data.sessionType);
+        return;
+      }
+
+      if (data.status === "ended") {
         session.id = sessionId;
         readonlyLogs = data.logs;
         if (data.scripts) {
@@ -84,43 +83,20 @@
         return;
       }
     } catch (e) {
-      console.error("Failed to check session logs:", e);
-      view = "not-found";
-      return;
+      console.error("Failed to check session status:", e);
     }
-    if (sessionType) {
-      connectWebSocket(sessionId, sessionType);
-    } else {
-      view = "not-found";
-    }
+    view = "not-found";
   }
 
   function connectWebSocket(sessionId: string, sessionType: string) {
     session.id = sessionId;
-    session.type = sessionType;
-    updateUrl();
+    const url = new URL(window.location);
+    url.searchParams.set("session", sessionId);
+    window.history.pushState({}, "", url);
     view = "console";
     const wsScheme = window.location.protocol === "https:" ? "wss://" : "ws://";
     const wsUrl = `${wsScheme}${window.location.host}/ws/browser?session=${sessionId}&type=${sessionType}`;
     socket = new WebSocket(wsUrl);
-  }
-
-  function updateUrl() {
-    if (!session.id) return;
-    const url = new URL(window.location);
-    url.searchParams.set("session", session.id);
-    if (session.type) {
-      url.searchParams.set("type", session.type);
-    }
-    window.history.pushState({ ...session }, "", url);
-  }
-
-  function stripTypeFromUrl() {
-    const url = new URL(window.location);
-    if (url.searchParams.has("type")) {
-      url.searchParams.delete("type");
-      window.history.replaceState({}, "", url);
-    }
   }
 
   function handleMouseDown(e: MouseEvent) {

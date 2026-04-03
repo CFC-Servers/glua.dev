@@ -12,7 +12,7 @@
         queuePosition = "Connecting...";
         
         try {
-            const response = await fetch("/api/request-session");
+            const response = await fetch(`/api/request-session?type=${containerType}`);
             const data = await response.json();
 
             if (data.status === "READY") {

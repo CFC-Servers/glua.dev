@@ -17,7 +17,7 @@
 
     function startInterval(endTime: number, duration: number, extensionThreshold: number) {
         if (interval) clearInterval(interval);
-        interval = setInterval(() => {
+        const update = () => {
             const remaining = endTime - Date.now();
             if (remaining <= 0) {
                 timeout = "00:00";
@@ -32,7 +32,9 @@
             if (remaining <= extensionThreshold && !extensionRequested) {
                 showExtensionPrompt = true;
             }
-        }, 1000);
+        };
+        update();
+        interval = setInterval(update, 1000);
     }
 
     function requestExtension() {

@@ -401,17 +401,18 @@ export class GmodPrerelease extends BaseSession {}
 export class GmodDev extends BaseSession {}
 
 export class QueueDO extends DurableObject<Env> {
-  activeSessions: Set<string>;
+  activeSessions: Map<string, string>; // sessionId → type
   waitingQueue: {
     ticketId: string;
+    sessionType: string;
     resolve: (value: string) => void
   }[];
-  resolvedTickets: Map<string, string>;
+  resolvedTickets: Map<string, { sessionId: string; sessionType: string }>;
   maxSessions: number;
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
-    this.activeSessions = new Set();
+    this.activeSessions = new Map();
     this.waitingQueue = [];
     this.resolvedTickets = new Map();
     this.maxSessions = 10;
@@ -421,18 +422,19 @@ export class QueueDO extends DurableObject<Env> {
     const url = new URL(request.url);
 
     if (url.pathname === "/api/request-session") {
+      const sessionType = url.searchParams.get("type") || "public";
       if (this.activeSessions.size < this.maxSessions) {
         const sessionId = crypto.randomUUID();
-        this.activeSessions.add(sessionId);
+        this.activeSessions.set(sessionId, sessionType);
         return new Response(JSON.stringify({ status: "READY", sessionId }), { headers: { "Content-Type": "application/json" }, });
       } else {
         const ticketId = crypto.randomUUID();
         const position = this.waitingQueue.length + 1;
 
         const sessionId = await new Promise<string>((resolve) => {
-          this.waitingQueue.push({ ticketId, resolve });
+          this.waitingQueue.push({ ticketId, sessionType, resolve });
         });
-        this.resolvedTickets.set(ticketId, sessionId);
+        this.resolvedTickets.set(ticketId, { sessionId, sessionType });
 
         return new Response(JSON.stringify({
           status: "QUEUED",
@@ -452,12 +454,13 @@ export class QueueDO extends DurableObject<Env> {
       if (!ticketId) return new Response("Missing ticketId", { status: 400 });
 
       if (this.resolvedTickets.has(ticketId)) {
-        const sessionId = this.resolvedTickets.get(ticketId)!;
+        const { sessionId, sessionType } = this.resolvedTickets.get(ticketId)!;
         this.resolvedTickets.delete(ticketId);
 
         return new Response(JSON.stringify({
           status: "READY",
-          sessionId
+          sessionId,
+          sessionType
         }), {
           headers: {
             "Content-Type": "application/json"
@@ -492,11 +495,42 @@ export class QueueDO extends DurableObject<Env> {
         const nextInLine = this.waitingQueue.shift()!;
         const newSessionId = crypto.randomUUID();
 
-        this.activeSessions.add(newSessionId);
+        this.activeSessions.set(newSessionId, nextInLine.sessionType);
         nextInLine.resolve(newSessionId);
       }
 
       return new Response("Session closed and slot freed.", { status: 200 });
+    }
+
+    if (url.pathname === "/api/session-status") {
+      const sessionId = url.searchParams.get("session");
+      if (!sessionId) {
+        return new Response(JSON.stringify({ status: "not-found" }), { headers: { "Content-Type": "application/json" } });
+      }
+
+      // Check if session is currently active
+      if (this.activeSessions.has(sessionId)) {
+        const sessionType = this.activeSessions.get(sessionId)!;
+        return new Response(JSON.stringify({ status: "active", sessionType }), { headers: { "Content-Type": "application/json" } });
+      }
+
+      // Check R2 for ended session
+      const logKey = `sessions/${sessionId}/logs.log`;
+      const logObject = await this.env.LOG_BUCKET.get(logKey);
+      if (!logObject) {
+        return new Response(JSON.stringify({ status: "not-found" }), { headers: { "Content-Type": "application/json" } });
+      }
+
+      const logs = await logObject.text();
+      const sessionKey = `sessions/${sessionId}/session.json`;
+      const sessionObject = await this.env.LOG_BUCKET.get(sessionKey);
+      const sessionData = sessionObject ? JSON.parse(await sessionObject.text()) : {};
+      return new Response(JSON.stringify({
+        status: "ended",
+        logs,
+        scripts: sessionData.scripts || {},
+        metadata: sessionData.metadata || null,
+      }), { headers: { "Content-Type": "application/json" } });
     }
 
     return new Response("Not found in QueueDO", { status: 404 });
@@ -507,29 +541,6 @@ export class QueueDO extends DurableObject<Env> {
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
-
-    if (url.pathname === "/api/session-logs") {
-      const sessionId = url.searchParams.get("session");
-      if (!sessionId) {
-        return new Response("Missing session param", { status: 400 });
-      }
-      const logKey = `sessions/${sessionId}/logs.log`;
-      const logObject = await env.LOG_BUCKET.get(logKey);
-      if (!logObject) {
-        return new Response(JSON.stringify({ exists: false }), {
-          headers: { "Content-Type": "application/json" },
-        });
-      }
-      const logs = await logObject.text();
-      const sessionKey = `sessions/${sessionId}/session.json`;
-      const sessionObject = await env.LOG_BUCKET.get(sessionKey);
-      const sessionData = sessionObject ? JSON.parse(await sessionObject.text()) : {};
-      const scripts = sessionData.scripts || {};
-      const metadata = sessionData.metadata || null;
-      return new Response(JSON.stringify({ exists: true, logs, scripts, metadata }), {
-        headers: { "Content-Type": "application/json" },
-      });
-    }
 
     if (url.pathname.startsWith("/api/")) {
       const queueDO = env.QUEUE_DO.get(env.QUEUE_DO.idFromName("global-queue"));
