@@ -10,8 +10,6 @@
     let cpuUsage = 0;
     let diskUsage = 0;
     let sessionDuration = "";
-    let sessionStartTime: number | null = null;
-    const totalSessionDuration = 6 * 60 * 1000;
 
     $: if ($sessionState === "closed") {
         endSession();
@@ -38,7 +36,6 @@
                     break;
                 case "SESSION_TIMER":
                     sessionTimer.set({ endTime: msg.payload.endTime });
-                    sessionStartTime = msg.payload.endTime - totalSessionDuration;
                     break;
                 case "CONTEXT_UPDATE":
                     sessionMetadata.set(msg.payload);
@@ -67,8 +64,9 @@
     }
 
     function endSession() {
-        if (sessionStartTime) {
-            sessionDuration = formatTime(Date.now() - sessionStartTime);
+        const meta = $sessionMetadata;
+        if (meta?.startedAt) {
+            sessionDuration = formatTime(Date.now() - meta.startedAt);
         }
     }
 

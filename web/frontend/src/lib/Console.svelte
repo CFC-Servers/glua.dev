@@ -1,20 +1,20 @@
 <script lang="ts">
     import { onMount } from "svelte";
     import { get } from "svelte/store";
+    import { mount } from "svelte";
     import { sessionState, scriptMap, viewingScript } from "./stores";
     import StatusPanel from "./StatusPanel.svelte";
     import SessionEndedCard from "./SessionEndedCard.svelte";
 
-    function appendEndedCard(container: HTMLElement, sessionId: string) {
+    function appendEndedCard(container: HTMLElement) {
         const target = document.createElement("div");
         container.appendChild(target);
-        new SessionEndedCard({ target, props: { sessionId } });
+        mount(SessionEndedCard, { target });
         container.scrollTop = container.scrollHeight;
     }
 
     export let socket: WebSocket | null;
     export let readonlyLogs: string | null = null;
-    export let sessionId: string | null = null;
 
     let commandInput: HTMLInputElement;
     let outputContainer: HTMLDivElement;
@@ -116,7 +116,7 @@
             }
 
             commandInput.disabled = true;
-            if (sessionId) appendEndedCard(outputContainer, sessionId);
+            appendEndedCard(outputContainer);
             outputContainer.scrollTop = outputContainer.scrollHeight;
         } else if (socket) {
             setupWebSocketHandlers();
@@ -153,7 +153,7 @@
                         virtualConsole.addLines(["\u001b[31mSession has been closed by the server.\u001b[0m"]);
                         sessionState.set("closed");
                         commandInput.disabled = true;
-                        if (sessionId) appendEndedCard(outputContainer, sessionId);
+                        appendEndedCard(outputContainer);
                         socket?.close();
                         break;
                     case "SCRIPT_EXECUTED":

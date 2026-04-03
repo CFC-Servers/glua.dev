@@ -150,7 +150,7 @@
     </div>
   {:else}
     <div bind:this={consolePanel} class="h-full relative">
-      <Console {socket} {readonlyLogs} sessionId={session.id} />
+      <Console {socket} {readonlyLogs} />
       <button id="editor-toggle-button" on:click={() => isEditorOpen.update(open => !open)} title="Toggle Editor (Ctrl+.)">
         {#if $isEditorOpen}
           <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">

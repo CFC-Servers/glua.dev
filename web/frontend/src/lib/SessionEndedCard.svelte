@@ -1,11 +1,8 @@
 <script lang="ts">
-    export let sessionId: string;
-
     let copied = false;
 
     function share() {
-        const url = `${window.location.origin}/?session=${sessionId}`;
-        navigator.clipboard.writeText(url).then(() => {
+        navigator.clipboard.writeText(window.location.href).then(() => {
             copied = true;
             setTimeout(() => { copied = false; }, 2000);
         });
