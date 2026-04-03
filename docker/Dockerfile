@@ -22,18 +22,24 @@ ARG home=/home/steam
 ARG gmodroot=$home/gmodserver
 ARG server=$home/gmodserver/garrysmod
 
+# Note: install commands are intentionally duplicated because it fails sometimes when only running them once?...
+# ref: https://github.com/CFC-Servers/GLuaTest/pull/108
 USER steam
 RUN if [ "$GMOD_BRANCH" = "x86-64" ]; then \
     echo "Downloading x86-64 branch"; \
     ./steamcmd.sh +force_install_dir $gmodroot +login anonymous +app_update 4020 -beta x86-64 validate +quit; \
+    ./steamcmd.sh +force_install_dir $gmodroot +login anonymous +app_update 4020 -beta x86-64 validate +quit; \
 elif [ "$GMOD_BRANCH" = "dev" ]; then \
     echo "Downloading dev branch"; \
+    ./steamcmd.sh +force_install_dir $gmodroot +login anonymous +app_update 4020 -beta dev validate +quit; \
     ./steamcmd.sh +force_install_dir $gmodroot +login anonymous +app_update 4020 -beta dev validate +quit; \
 elif [ "$GMOD_BRANCH" = "prerelease" ]; then \
     echo "Downloading prerelease branch"; \
     ./steamcmd.sh +force_install_dir $gmodroot +login anonymous +app_update 4020 -beta prerelease validate +quit; \
+    ./steamcmd.sh +force_install_dir $gmodroot +login anonymous +app_update 4020 -beta prerelease validate +quit; \
 else \
     echo "Downloading live branch"; \
+    ./steamcmd.sh +force_install_dir $gmodroot +login anonymous +app_update 4020 validate +quit; \
     ./steamcmd.sh +force_install_dir $gmodroot +login anonymous +app_update 4020 validate +quit; \
 fi
 
