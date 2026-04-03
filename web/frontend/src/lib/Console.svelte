@@ -22,7 +22,8 @@
 
     let commandInput: HTMLInputElement;
     let outputContainer: HTMLDivElement;
-    let commandHistory: string[] = [];
+    const HISTORY_KEY = "glua-command-history";
+    let commandHistory: string[] = JSON.parse(localStorage.getItem(HISTORY_KEY) || "[]");
     let historyIndex = -1;
 
     $: inactive = $sessionState === 'closed' || $sessionState === 'readonly';
@@ -198,6 +199,7 @@
             sendCommand(commandText);
             commandHistory.unshift(commandText);
             if (commandHistory.length > 50) commandHistory.pop();
+            localStorage.setItem(HISTORY_KEY, JSON.stringify(commandHistory));
             historyIndex = -1;
             commandInput.value = "";
             e.preventDefault();
