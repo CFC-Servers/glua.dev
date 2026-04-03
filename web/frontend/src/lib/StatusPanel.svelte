@@ -35,7 +35,7 @@
                     updateStatusWidget(msg.payload);
                     break;
                 case "SESSION_TIMER":
-                    sessionTimer.set({ endTime: msg.payload.endTime });
+                    sessionTimer.set(msg.payload);
                     break;
                 case "CONTEXT_UPDATE":
                     sessionMetadata.set(msg.payload);
@@ -88,6 +88,7 @@
                         {#if sessionDuration}
                             <div class="text-gray-400">Session duration: <span class="text-gray-200">{sessionDuration}</span></div>
                         {/if}
+                        <div class="flex justify-between"><span class="text-gray-400">Started:</span><span class="font-mono text-gray-200">{new Date($sessionMetadata.startedAt).toLocaleString()}</span></div>
                         <div class="border-t border-gray-700 my-2"></div>
                         <SessionMetadata />
                     {/if}
