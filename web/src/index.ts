@@ -25,7 +25,7 @@ export class BaseSession extends Container<Env> {
   logLineCount: number;
   scriptBuffer: Record<string, { content: string; logLine: number }>;
   scriptCount: number;
-  sessionMetadata: { branch: string; gameVersion: string; containerTag: string; startedAt: number } | null;
+  sessionMetadata: { branch: string; gameVersion: string; containerTag: string; startedAt: number; endedAt?: number } | null;
   sessionEndTime?: number;
 
   constructor(ctx: DurableObjectState, env: Env) {
@@ -253,6 +253,9 @@ export class BaseSession extends Container<Env> {
 
     if (this.sessionState === "CLOSED") return;
     this.sessionState = "CLOSED";
+    if (this.sessionMetadata) {
+      this.sessionMetadata.endedAt = Date.now();
+    }
 
     if(this.containerSocket) {
       try { this.containerSocket.close(1000, "Session closed."); } catch(e) {}

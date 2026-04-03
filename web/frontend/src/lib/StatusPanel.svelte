@@ -11,8 +11,8 @@
     let diskUsage = 0;
     let sessionDuration = "";
 
-    $: if ($sessionState === "closed") {
-        endSession();
+    $: if ($sessionState === "closed" || $sessionState === "readonly") {
+        computeDuration();
     }
 
     onMount(() => {
@@ -63,11 +63,11 @@
         return `${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`;
     }
 
-    function endSession() {
+    function computeDuration() {
         const meta = $sessionMetadata;
-        if (meta?.startedAt) {
-            sessionDuration = formatTime(Date.now() - meta.startedAt);
-        }
+        if (!meta?.startedAt) return;
+        const end = meta.endedAt ?? Date.now();
+        sessionDuration = formatTime(end - meta.startedAt);
     }
 
     $: inactive = $sessionState === "closed" || $sessionState === "readonly";

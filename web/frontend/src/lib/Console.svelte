@@ -1,15 +1,16 @@
 <script lang="ts">
     import { onMount } from "svelte";
     import { get } from "svelte/store";
-    import { mount } from "svelte";
+    import { mount, tick } from "svelte";
     import { sessionState, scriptMap, viewingScript } from "./stores";
     import StatusPanel from "./StatusPanel.svelte";
     import SessionEndedCard from "./SessionEndedCard.svelte";
 
-    function appendEndedCard(container: HTMLElement) {
+    async function appendEndedCard(container: HTMLElement) {
         const target = document.createElement("div");
         container.appendChild(target);
         mount(SessionEndedCard, { target });
+        await tick();
         container.scrollTop = container.scrollHeight;
     }
 

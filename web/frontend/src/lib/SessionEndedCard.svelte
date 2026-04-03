@@ -17,9 +17,10 @@
             <button on:click={() => window.location.href = "/"} class="px-4 py-1.5 rounded-lg bg-gray-700 hover:bg-gray-600 text-gray-200 text-xs font-medium transition-colors">
                 New session
             </button>
-            <button on:click={share} class="px-4 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-medium transition-colors min-w-[80px]">
-                {copied ? "Copied!" : "Share"}
+            <button on:click={share} class="px-4 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-medium transition-colors min-w-[110px]">
+                {copied ? "Copied!" : "Share Session"}
             </button>
         </div>
+        <p class="text-[10px] text-gray-500 mt-3">Anyone with the link can view this session's full history</p>
     </div>
 </div>
