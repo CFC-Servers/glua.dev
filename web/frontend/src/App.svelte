@@ -60,6 +60,12 @@
     localStorage.setItem(EDITOR_OPEN_KEY, JSON.stringify(open));
   });
 
+  sessionState.subscribe(state => {
+    if (state === "closed" || state === "readonly") {
+      stripTypeFromUrl();
+    }
+  });
+
   async function loadSession(sessionId: string, sessionType: string | null) {
     try {
       const res = await fetch(`/api/session-logs?session=${sessionId}`);
@@ -103,8 +109,18 @@
     if (!session.id) return;
     const url = new URL(window.location);
     url.searchParams.set("session", session.id);
-    url.searchParams.delete("type");
+    if (session.type) {
+      url.searchParams.set("type", session.type);
+    }
     window.history.pushState({ ...session }, "", url);
+  }
+
+  function stripTypeFromUrl() {
+    const url = new URL(window.location);
+    if (url.searchParams.has("type")) {
+      url.searchParams.delete("type");
+      window.history.replaceState({}, "", url);
+    }
   }
 
   function handleMouseDown(e: MouseEvent) {
