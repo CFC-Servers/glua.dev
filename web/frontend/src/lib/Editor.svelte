@@ -7,6 +7,8 @@
     import { lua } from "./lua-mode.js";
     import { oneDark } from "@codemirror/theme-one-dark";
 
+    import { sessionState } from "./stores";
+
     export let socket: WebSocket | null;
     export let fileName: string = "script";
 
@@ -75,11 +77,11 @@ hello()
             />
         </div>
         <div id="editor-footer">
-            <button bind:this={runScriptButton} on:click={runScript} id="run-script-button" title="Run Script (Ctrl+Enter)">
+            <button bind:this={runScriptButton} on:click={runScript} id="run-script-button" class="{$sessionState === 'closed' ? 'session-ended' : ''}" title="{$sessionState === 'closed' ? 'Session ended' : 'Run Script (Ctrl+Enter)'}" disabled={$sessionState === 'closed'}>
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
                     <path d="M9.222 5.934a.5.5 0 00-.722.434v7.264a.5.5 0 00.722.434l6-3.632a.5.5 0 000-.868l-6-3.632z" />
                 </svg>
-                <span>Run</span>
+                <span>{$sessionState === 'closed' ? 'Session Ended' : 'Run'}</span>
             </button>
         </div>
     </div>

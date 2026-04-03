@@ -1,5 +1,6 @@
 <script lang="ts">
     import { onMount } from "svelte";
+    import { sessionState } from "./stores";
     import StatusPanel from "./StatusPanel.svelte";
 
     export let socket: WebSocket | null;
@@ -55,6 +56,7 @@
 
         socket.onopen = () => {
             virtualConsole.addLines(["\u001b[32mConnection established. Waiting for session...\u001b[0m"]);
+            sessionState.set("provisioning");
             commandInput.disabled = false;
             commandInput.focus();
         };
@@ -73,10 +75,11 @@
                         // This will be handled by the StatusPanel component
                         break;
                     case "SESSION_TIMER":
-                        // This will be handled by the StatusPanel component
+                        sessionState.set("active");
                         break;
                     case "SESSION_CLOSED":
                         virtualConsole.addLines(["\u001b[31mSession has been closed by the server.\u001b[0m"]);
+                        sessionState.set("closed");
                         commandInput.disabled = true;
                         socket?.close();
                         break;
@@ -140,8 +143,8 @@
     <div bind:this={outputContainer} class="flex-grow overflow-y-auto overflow-x-hidden p-4"></div>
     <div class="mt-auto p-4">
         <div class="flex items-center border-t border-gray-700 pt-3">
-            <span class="text-green-400 mr-2 shrink-0">&gt;</span>
-            <input type="text" bind:this={commandInput} on:keydown={handleKeydown} class="w-full bg-transparent border-none focus:ring-0 focus:outline-none text-gray-200 placeholder-gray-500" placeholder="Enter command..." autocomplete="off" autofocus disabled>
+            <span class="{$sessionState === 'closed' ? 'text-gray-600' : 'text-green-400'} mr-2 shrink-0">&gt;</span>
+            <input type="text" bind:this={commandInput} on:keydown={handleKeydown} class="w-full bg-transparent border-none focus:ring-0 focus:outline-none {$sessionState === 'closed' ? 'text-gray-600 placeholder-gray-600 cursor-not-allowed' : 'text-gray-200 placeholder-gray-500'}" placeholder="{$sessionState === 'closed' ? 'Session ended' : 'Enter command...'}" autocomplete="off" autofocus disabled>
         </div>
     </div>
 </div>
