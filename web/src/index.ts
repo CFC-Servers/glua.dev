@@ -284,6 +284,7 @@ export class BaseSession extends Container<Env> {
     await this.flushScriptsToR2();
 
     if (this.sessionState === "ACTIVE") {
+      this.renewActivityTimeout();
       this.ctx.storage.setAlarm(Date.now() + 60 * 1000);
     }
   }
