@@ -22,6 +22,8 @@ export class BaseSession extends Container<Env> {
   browserSockets: Set<WebSocket>;
   containerSocket: WebSocket | null;
   logBuffer: string[];
+  scriptBuffer: Record<string, string>;
+  scriptCount: number;
   sessionMetadata: { branch: string; gameVersion: string; containerTag: string } | null;
   sessionEndTime?: number;
 
@@ -36,6 +38,8 @@ export class BaseSession extends Container<Env> {
     this.browserSockets = new Set();
     this.containerSocket = null;
     this.logBuffer = [];
+    this.scriptBuffer = {};
+    this.scriptCount = 0;
   }
 
   override async fetch(request: Request): Promise<Response> {
@@ -109,7 +113,7 @@ export class BaseSession extends Container<Env> {
       this.sendToBrowser(ws, "SESSION_TIMER", { endTime: this.sessionEndTime });
     }
 
-    // Restore logs from R2 and buffer for the new client
+    // Restore logs and scripts from R2 and buffer for the new client
     this.ctx.blockConcurrencyWhile(async () => {
         try {
             const logKey = `logs/${sessionId}.log`;
@@ -121,15 +125,27 @@ export class BaseSession extends Container<Env> {
             // Append any logs that have come in since the DO was activated
             if (this.logBuffer.length > 0) {
                 if (fullLogContent.length > 0 && !fullLogContent.endsWith("\n")) {
-                    fullLogContent += "\n"; // Ensure newline if content exists
+                    fullLogContent += "\n";
                 }
                 fullLogContent += this.logBuffer.join("\n");
             }
             if (fullLogContent.length > 0) {
                 this.sendToBrowser(ws, "HISTORY", fullLogContent);
             }
+
+            // Restore scripts from R2 + in-memory buffer
+            const scriptKey = `scripts/${sessionId}.json`;
+            const existingScripts = await this.env.LOG_BUCKET.get(scriptKey);
+            let allScripts: Record<string, string> = {};
+            if (existingScripts) {
+                allScripts = JSON.parse(await existingScripts.text());
+            }
+            Object.assign(allScripts, this.scriptBuffer);
+            if (Object.keys(allScripts).length > 0) {
+                this.sendToBrowser(ws, "SCRIPT_HISTORY", allScripts);
+            }
         } catch (e) {
-            console.error("Could not get log history from R2", e);
+            console.error("Could not get history from R2", e);
         }
     });
 
@@ -205,9 +221,20 @@ export class BaseSession extends Container<Env> {
       const message: WebSocketMessage = JSON.parse(msg.data as string);
       if (this.containerSocket?.readyState === WebSocket.OPEN) {
         if (message.type === "SCRIPT") {
-            console.log("--- RUN SCRIPT ---");
-            console.log(message.payload);
-            console.log("--------------------");
+            const content = message.payload.content || "";
+            if (content.length > 65536) {
+              this.broadcastToBrowsers("LOGS", ["\u001b[31mScript too large (max 64KB).\u001b[0m"]);
+              return;
+            }
+            if (this.scriptCount >= 50) {
+              this.broadcastToBrowsers("LOGS", ["\u001b[31mScript limit reached (max 50 per session).\u001b[0m"]);
+              return;
+            }
+            this.scriptCount++;
+            const cleanName = (message.payload.name || "script").replace(/[^a-zA-Z0-9_-]/g, "_");
+            const resolvedName = `${cleanName}_${this.scriptCount}.lua`;
+            this.scriptBuffer[resolvedName] = content;
+            this.broadcastToBrowsers("SCRIPT_EXECUTED", { name: resolvedName, content });
         }
         this.containerSocket.send(JSON.stringify(message));
       }
@@ -233,6 +260,7 @@ export class BaseSession extends Container<Env> {
     });
 
     await this.flushLogsToR2();
+    await this.flushScriptsToR2();
     await this.notifyQueueManagerOfClosure();
 
     try { await this.stop(); }
@@ -250,6 +278,7 @@ export class BaseSession extends Container<Env> {
 
   async alarm() {
     await this.flushLogsToR2();
+    await this.flushScriptsToR2();
 
     if (this.sessionState === "ACTIVE") {
       this.ctx.storage.setAlarm(Date.now() + 60 * 1000);
@@ -271,6 +300,24 @@ export class BaseSession extends Container<Env> {
     } catch (e) {
       console.error(`Failed to flush logs for DO ${this.ctx.id.name!}:`, e);
       this.logBuffer.unshift(...logsToFlush.trim().split("\n"));
+    }
+  }
+
+  async flushScriptsToR2() {
+    if (Object.keys(this.scriptBuffer).length === 0) return;
+    const scriptKey = `scripts/${this.ctx.id.name!}.json`;
+
+    try {
+      const existing = await this.env.LOG_BUCKET.get(scriptKey);
+      let allScripts: Record<string, string> = {};
+      if (existing) {
+        allScripts = JSON.parse(await existing.text());
+      }
+      Object.assign(allScripts, this.scriptBuffer);
+      await this.env.LOG_BUCKET.put(scriptKey, JSON.stringify(allScripts));
+      this.scriptBuffer = {};
+    } catch (e) {
+      console.error(`Failed to flush scripts for DO ${this.ctx.id.name!}:`, e);
     }
   }
 
@@ -418,7 +465,10 @@ export default {
         });
       }
       const logs = await logObject.text();
-      return new Response(JSON.stringify({ exists: true, logs }), {
+      const scriptKey = `scripts/${sessionId}.json`;
+      const scriptObject = await env.LOG_BUCKET.get(scriptKey);
+      const scripts = scriptObject ? JSON.parse(await scriptObject.text()) : {};
+      return new Response(JSON.stringify({ exists: true, logs, scripts }), {
         headers: { "Content-Type": "application/json" },
       });
     }

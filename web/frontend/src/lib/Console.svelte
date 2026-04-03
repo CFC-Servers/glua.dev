@@ -1,6 +1,7 @@
 <script lang="ts">
     import { onMount } from "svelte";
-    import { sessionState } from "./stores";
+    import { get } from "svelte/store";
+    import { sessionState, scriptMap, viewingScript } from "./stores";
     import StatusPanel from "./StatusPanel.svelte";
 
     export let socket: WebSocket | null;
@@ -43,6 +44,36 @@
                 this.container.scrollTop = this.container.scrollHeight;
             }
         }
+
+        addScriptLink(name: string) {
+            const wasAtBottom = this.isAtBottom;
+            const el = document.createElement('div');
+            el.className = 'console-script-link';
+
+            const icon = document.createElement('span');
+            icon.className = 'script-icon';
+            icon.textContent = '▶';
+
+            const nameSpan = document.createElement('span');
+            nameSpan.className = 'script-name';
+            nameSpan.textContent = name;
+
+            const hint = document.createElement('span');
+            hint.className = 'script-hint';
+            hint.textContent = '— click to view';
+
+            el.append(icon, nameSpan, hint);
+            el.addEventListener('click', () => {
+                const scripts = get(scriptMap);
+                if (scripts[name]) {
+                    viewingScript.set({ name, content: scripts[name] });
+                }
+            });
+            this.container.appendChild(el);
+            if (wasAtBottom) {
+                this.container.scrollTop = this.container.scrollHeight;
+            }
+        }
     }
 
     let virtualConsole: VirtualConsole;
@@ -51,6 +82,11 @@
         virtualConsole = new VirtualConsole(outputContainer);
         if (readonlyLogs) {
             virtualConsole.addLines(readonlyLogs.split('\n'));
+            // Render clickable links for all scripts we have
+            const scripts = get(scriptMap);
+            for (const name of Object.keys(scripts)) {
+                virtualConsole.addScriptLink(name);
+            }
             commandInput.disabled = true;
         } else if (socket) {
             setupWebSocketHandlers();
@@ -88,6 +124,13 @@
                         sessionState.set("closed");
                         commandInput.disabled = true;
                         socket?.close();
+                        break;
+                    case "SCRIPT_EXECUTED":
+                        scriptMap.update(m => ({ ...m, [msg.payload.name]: msg.payload.content }));
+                        virtualConsole.addScriptLink(msg.payload.name);
+                        break;
+                    case "SCRIPT_HISTORY":
+                        scriptMap.update(m => ({ ...m, ...msg.payload }));
                         break;
                     case "CONTEXT_UPDATE":
                         // This will be handled by the StatusPanel component

@@ -3,7 +3,8 @@
   import Modal from "./lib/Modal.svelte";
   import Console from "./lib/Console.svelte";
   import Editor from "./lib/Editor.svelte";
-  import { isEditorOpen, sessionState } from "./lib/stores";
+  import ScriptViewer from "./lib/ScriptViewer.svelte";
+  import { isEditorOpen, sessionState, scriptMap } from "./lib/stores";
 
   let session = { id: null, type: null };
   let socket: WebSocket | null = null;
@@ -67,6 +68,9 @@
         session.type = sessionType;
         showModal = false;
         readonlyLogs = data.logs;
+        if (data.scripts) {
+          scriptMap.set(data.scripts);
+        }
         sessionState.set("readonly");
         return;
       }
@@ -122,6 +126,7 @@
   }
 </script>
 
+<ScriptViewer />
 <main class="flex flex-row h-screen overflow-hidden">
   {#if showModal}
     <Modal on:startsession={(e) => connectWebSocket(e.detail.sessionId, e.detail.sessionType)} />
