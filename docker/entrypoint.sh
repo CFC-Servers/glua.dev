@@ -76,10 +76,10 @@ echo "Size of the agent binary: $(du -h /usr/local/bin/gluadev-agent | cut -f1)"
 # Start game server
 if [ "$gmodbranch" = "x86-64" ]; then
     echo "Starting 64-bit server"
-    screen -L -Logfile "$server/console.log" -dmS gmod timeout 6m "$gmodroot"/srcds_run_x64 "${srcds_args[@]}"
+    screen -L -Logfile "$server/console.log" -dmS gmod timeout 20m "$gmodroot"/srcds_run_x64 "${srcds_args[@]}"
 else
     echo "Starting 32-bit server"
-    screen -L -Logfile "$server/console.log" -dmS gmod timeout 6m "$gmodroot"/srcds_run "${srcds_args[@]}"
+    screen -L -Logfile "$server/console.log" -dmS gmod timeout 20m "$gmodroot"/srcds_run "${srcds_args[@]}"
 fi
 
 echo ""

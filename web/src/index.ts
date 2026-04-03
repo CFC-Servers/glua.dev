@@ -16,6 +16,13 @@ export interface Env {
   LOG_BUCKET: R2Bucket;
 }
 
+// --- Session Time Limits ---
+const SESSION_DURATION = 10 * 60 * 1000;      // 10 minutes default
+const SESSION_HARD_LIMIT = 15 * 60 * 1000;    // 15 minutes absolute max
+const SESSION_EXTENSION = 5 * 60 * 1000;      // 5 minutes per extension
+const EXTENSION_THRESHOLD = 2 * 60 * 1000;    // allow extension requests with <2min remaining
+const ACTIVITY_PING_INTERVAL = 30 * 1000;     // 30 seconds
+
 // --- Container / Session Manager Base Class ---
 export class BaseSession extends Container<Env> {
   sessionState: "NEW" | "PROVISIONING" | "ACTIVE" | "CLOSED";
@@ -27,6 +34,8 @@ export class BaseSession extends Container<Env> {
   scriptCount: number;
   sessionMetadata: { branch: string; gameVersion: string; containerTag: string; startedAt: number; endedAt?: number } | null;
   sessionEndTime?: number;
+  sessionDuration?: number;
+  extensionGranted = false;
 
   constructor(ctx: DurableObjectState, env: Env) {
     // Pass the container config to the super constructor.
@@ -95,12 +104,12 @@ export class BaseSession extends Container<Env> {
     this.containerSocket = ws;
     this.sessionState = "ACTIVE";
 
-    const sessionDuration = 6 * 60 * 1000; // 6 minutes
-    this.sessionEndTime = Date.now() + sessionDuration;
-    this.broadcastToBrowsers("SESSION_TIMER", { endTime: this.sessionEndTime });
+    this.sessionDuration = SESSION_DURATION;
+    this.sessionEndTime = Date.now() + this.sessionDuration;
+    this.broadcastToBrowsers("SESSION_TIMER", this.sessionTimerPayload());
 
     this.broadcastToBrowsers("LOGS", ["\u001b[32mAgent connected. Session is live.\u001b[0m"]);
-    this.ctx.storage.setAlarm(Date.now() + 60 * 1000);
+    this.ctx.storage.setAlarm(Date.now() + ACTIVITY_PING_INTERVAL);
 
     ws.addEventListener("message", this.onAgentMessage);
     ws.addEventListener("close", this.closeSession);
@@ -112,7 +121,7 @@ export class BaseSession extends Container<Env> {
     this.browserSockets.add(ws);
 
     if (this.sessionState === "ACTIVE" && this.sessionEndTime) {
-      this.sendToBrowser(ws, "SESSION_TIMER", { endTime: this.sessionEndTime });
+      this.sendToBrowser(ws, "SESSION_TIMER", this.sessionTimerPayload());
     }
 
     // Restore logs and scripts from R2 and buffer for the new client
@@ -224,6 +233,10 @@ export class BaseSession extends Container<Env> {
     try {
       console.log("Received message from browser:", msg.data);
       const message: WebSocketMessage = JSON.parse(msg.data as string);
+      if (message.type === "REQUEST_EXTENSION") {
+        this.handleExtensionRequest();
+        return;
+      }
       if (this.containerSocket?.readyState === WebSocket.OPEN) {
         if (message.type === "SCRIPT") {
             const content = message.payload.content || "";
@@ -244,6 +257,32 @@ export class BaseSession extends Container<Env> {
         this.containerSocket.send(JSON.stringify(message));
       }
     } catch (e) { console.error("Failed to parse browser message:", e); }
+  }
+
+  sessionTimerPayload() {
+    return {
+      endTime: this.sessionEndTime,
+      duration: this.sessionDuration,
+      extensionThreshold: EXTENSION_THRESHOLD,
+    };
+  }
+
+  handleExtensionRequest() {
+    if (!this.sessionEndTime || !this.sessionDuration || this.sessionState !== "ACTIVE") return;
+    if (this.extensionGranted) return;
+
+    const remaining = this.sessionEndTime - Date.now();
+    if (remaining > EXTENSION_THRESHOLD) return;
+
+    this.extensionGranted = true;
+
+    const elapsed = Date.now() - (this.sessionEndTime - this.sessionDuration);
+    const newDuration = Math.min(elapsed + remaining + SESSION_EXTENSION, SESSION_HARD_LIMIT);
+    const newEndTime = Date.now() + (newDuration - elapsed);
+
+    this.sessionDuration = newDuration;
+    this.sessionEndTime = newEndTime;
+    this.broadcastToBrowsers("SESSION_TIMER", this.sessionTimerPayload());
   }
 
   async closeSession() {
@@ -290,7 +329,7 @@ export class BaseSession extends Container<Env> {
 
     if (this.sessionState === "ACTIVE") {
       this.renewActivityTimeout();
-      this.ctx.storage.setAlarm(Date.now() + 60 * 1000);
+      this.ctx.storage.setAlarm(Date.now() + ACTIVITY_PING_INTERVAL);
     }
   }
 

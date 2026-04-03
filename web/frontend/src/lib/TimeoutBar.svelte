@@ -2,28 +2,45 @@
     import { onDestroy } from "svelte";
     import { sessionTimer } from "./stores";
 
+    export let socket: WebSocket | null;
+
     let timeout = "00:00";
     let timeoutPercentage = 100;
     let interval: any;
-    const totalSessionDuration = 6 * 60 * 1000;
+    let showExtensionPrompt = false;
+    let extensionRequested = false;
 
     $: if ($sessionTimer) {
-        startInterval($sessionTimer.endTime);
+        showExtensionPrompt = false;
+        startInterval($sessionTimer.endTime, $sessionTimer.duration, $sessionTimer.extensionThreshold);
     }
 
-    function startInterval(endTime: number) {
+    function startInterval(endTime: number, duration: number, extensionThreshold: number) {
         if (interval) clearInterval(interval);
         interval = setInterval(() => {
             const remaining = endTime - Date.now();
             if (remaining <= 0) {
                 timeout = "00:00";
                 timeoutPercentage = 0;
+                showExtensionPrompt = false;
                 clearInterval(interval);
                 return;
             }
-            timeoutPercentage = (remaining / totalSessionDuration) * 100;
+            timeoutPercentage = (remaining / duration) * 100;
             timeout = formatTime(remaining);
+
+            if (remaining <= extensionThreshold && !extensionRequested) {
+                showExtensionPrompt = true;
+            }
         }, 1000);
+    }
+
+    function requestExtension() {
+        if (socket?.readyState === WebSocket.OPEN) {
+            socket.send(JSON.stringify({ type: "REQUEST_EXTENSION" }));
+            extensionRequested = true;
+            showExtensionPrompt = false;
+        }
     }
 
     function formatTime(ms: number) {
@@ -48,4 +65,9 @@
     <div class="w-full bg-gray-700 rounded-full h-1.5">
         <div class="{barColor} h-1.5 rounded-full transition-all duration-500" style="width: {timeoutPercentage}%"></div>
     </div>
+    {#if showExtensionPrompt}
+        <button on:click={requestExtension} class="mt-2 w-full text-xs text-center py-1.5 rounded-md bg-indigo-600/20 hover:bg-indigo-600/40 text-indigo-300 hover:text-indigo-200 border border-indigo-500/30 transition-colors">
+            Need a few more minutes?
+        </button>
+    {/if}
 </div>

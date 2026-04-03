@@ -104,7 +104,7 @@
                         <div class="flex justify-between items-baseline mb-1"><span class="text-xs font-semibold text-gray-300">Disk Usage</span><span class="text-xs font-mono text-cyan-300">{diskUsage.toFixed(1)}%</span></div>
                         <div class="w-full bg-gray-700 rounded-full h-1.5"><div class="bg-cyan-500 h-1.5 rounded-full transition-all duration-500" style="width: {diskUsage}%"></div></div>
                     </div>
-                    <TimeoutBar />
+                    <TimeoutBar {socket} />
                     <div class="border-t border-gray-700 pt-3">
                         <SessionMetadata />
                     </div>
