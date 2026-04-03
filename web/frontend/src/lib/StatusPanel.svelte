@@ -71,7 +71,7 @@
         const totalSeconds = Math.floor(ms / 1000);
         const minutes = Math.floor(totalSeconds / 60);
         const seconds = totalSeconds % 60;
-        return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+        return `${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`;
     }
 
     function setupSessionTimer(endTime: number) {
@@ -125,7 +125,7 @@
                         <div class="text-gray-400">Session duration: <span class="text-gray-200">{sessionDuration}</span></div>
                     {/if}
                     <div class="border-t border-gray-700 my-2"></div>
-                    <button on:click={() => window.location.href = '/'} class="text-indigo-400 hover:text-indigo-300 transition-colors duration-200">New Session</button>
+                    <button on:click={() => window.location.href = "/"} class="text-indigo-400 hover:text-indigo-300 transition-colors duration-200">New Session</button>
                 </div>
             {:else}
                 <div class="px-4 pb-4 space-y-4">

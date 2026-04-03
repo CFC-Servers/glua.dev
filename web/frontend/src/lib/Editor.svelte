@@ -1,6 +1,6 @@
 <script lang="ts">
     import { onMount } from "svelte";
-    import CodeMirror from 'svelte-codemirror-editor';
+    import CodeMirror from "svelte-codemirror-editor";
     import { EditorView, keymap } from "@codemirror/view";
     import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
     import { StreamLanguage } from "@codemirror/language";
@@ -35,7 +35,7 @@ hello()
 
     onMount(() => {
         const savedContent = localStorage.getItem("glua-editor-content");
-        if (savedContent && savedContent !== 'undefined') {
+        if (savedContent && savedContent !== "undefined") {
             value = savedContent;
         }
     });
@@ -72,7 +72,7 @@ hello()
                 theme={oneDark} 
                 extensions={[
                     history(), 
-                    keymap.of([...defaultKeymap, ...historyKeymap, {key: 'Ctrl-Enter', run: () => { runScript(); return true; }}]),
+                    keymap.of([...defaultKeymap, ...historyKeymap, {key: "Ctrl-Enter", run: () => { runScript(); return true; }}]),
                     customTheme
                 ]} 
                 on:change={(e) => localStorage.setItem("glua-editor-content", e.detail.value)} 

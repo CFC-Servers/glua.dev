@@ -1,5 +1,5 @@
 <script lang="ts">
-    import CodeMirror from 'svelte-codemirror-editor';
+    import CodeMirror from "svelte-codemirror-editor";
     import { EditorView } from "@codemirror/view";
     import { EditorState } from "@codemirror/state";
     import { StreamLanguage } from "@codemirror/language";

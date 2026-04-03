@@ -23,7 +23,7 @@
             this.container = container;
             this.ansiUp = new (window as any).AnsiUp();
             this.ansiUp.use_classes = true;
-            this.container.addEventListener('scroll', () => {
+            this.container.addEventListener("scroll", () => {
                 const threshold = 5;
                 this.isAtBottom = this.container.scrollHeight - this.container.scrollTop - this.container.clientHeight < threshold;
             });
@@ -34,8 +34,8 @@
             const wasAtBottom = this.isAtBottom;
             const fragment = document.createDocumentFragment();
             for (const line of lines) {
-                const lineDiv = document.createElement('div');
-                lineDiv.className = 'console-output-line';
+                const lineDiv = document.createElement("div");
+                lineDiv.className = "console-output-line";
                 lineDiv.innerHTML = this.ansiUp.ansi_to_html(line);
                 fragment.appendChild(lineDiv);
             }
@@ -47,23 +47,23 @@
 
         addScriptLink(name: string) {
             const wasAtBottom = this.isAtBottom;
-            const el = document.createElement('div');
-            el.className = 'console-script-link';
+            const el = document.createElement("div");
+            el.className = "console-script-link";
 
-            const icon = document.createElement('span');
-            icon.className = 'script-icon';
-            icon.textContent = '▶';
+            const icon = document.createElement("span");
+            icon.className = "script-icon";
+            icon.textContent = "▶";
 
-            const nameSpan = document.createElement('span');
-            nameSpan.className = 'script-name';
+            const nameSpan = document.createElement("span");
+            nameSpan.className = "script-name";
             nameSpan.textContent = name;
 
-            const hint = document.createElement('span');
-            hint.className = 'script-hint';
-            hint.textContent = '— click to view';
+            const hint = document.createElement("span");
+            hint.className = "script-hint";
+            hint.textContent = "— click to view";
 
             el.append(icon, nameSpan, hint);
-            el.addEventListener('click', () => {
+            el.addEventListener("click", () => {
                 const scripts = get(scriptMap);
                 if (scripts[name]) {
                     viewingScript.set({ name, content: scripts[name] });
@@ -81,7 +81,7 @@
     onMount(() => {
         virtualConsole = new VirtualConsole(outputContainer);
         if (readonlyLogs) {
-            virtualConsole.addLines(readonlyLogs.split('\n'));
+            virtualConsole.addLines(readonlyLogs.split("\n"));
             // Render clickable links for all scripts we have
             const scripts = get(scriptMap);
             for (const name of Object.keys(scripts)) {
@@ -108,7 +108,7 @@
                 const msg = JSON.parse(event.data);
                 switch (msg.type) {
                     case "HISTORY":
-                        virtualConsole.addLines(msg.payload.split('\n'));
+                        virtualConsole.addLines(msg.payload.split("\n"));
                         break;
                     case "LOGS":
                         virtualConsole.addLines(Array.isArray(msg.payload) ? msg.payload : [msg.payload]);
