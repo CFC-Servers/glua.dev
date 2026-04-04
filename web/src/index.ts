@@ -113,8 +113,8 @@ export class BaseSession extends Container<Env> {
     this.ctx.storage.setAlarm(Date.now() + ACTIVITY_PING_INTERVAL);
 
     ws.addEventListener("message", this.onAgentMessage);
-    ws.addEventListener("close", this.closeSession);
-    ws.addEventListener("error", this.closeSession);
+    ws.addEventListener("close", () => this.closeSession());
+    ws.addEventListener("error", () => this.closeSession());
   }
 
   handleBrowserWebSocket(ws: WebSocket, sessionId: string) {
@@ -326,12 +326,25 @@ export class BaseSession extends Container<Env> {
   }
 
   async alarm() {
-    await this.flushLogsToR2();
-    await this.flushSessionToR2();
+    console.log(`[alarm] state=${this.sessionState}, running=${this.running}`);
+    try {
+      await this.flushLogsToR2();
+      await this.flushSessionToR2();
+    } catch (e) {
+      console.error("[alarm] flush error:", e);
+    }
 
     if (this.sessionState === "ACTIVE") {
+      if (this.sessionEndTime && Date.now() >= this.sessionEndTime) {
+        console.log("[alarm] session time expired, closing");
+        await this.closeSession();
+        return;
+      }
       this.renewActivityTimeout();
       this.ctx.storage.setAlarm(Date.now() + ACTIVITY_PING_INTERVAL);
+      console.log("[alarm] renewed activity timeout, next alarm scheduled");
+    } else {
+      console.log("[alarm] not rescheduling, session not active");
     }
   }
 
