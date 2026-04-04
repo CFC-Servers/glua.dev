@@ -154,5 +154,6 @@ runs:
         CLOUDFLARE_ACCOUNT_ID: ${{ inputs.cloudflare_account_id }}
       run: |
         cd ${{ inputs.path }}/web
+        npm i
         npm run build
         npx wrangler deploy
