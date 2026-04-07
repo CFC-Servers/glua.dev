@@ -191,7 +191,19 @@ export class BaseSession extends Container<Env> {
     this.renewActivityTimeout();
   }
 
+  startRetries = 0;
+
   override async onStop(): Promise<void> {
+    // If the container died before the agent ever connected, retry once
+    // (handles the case where Cloudflare hasn't fully freed the previous container's slot)
+    if (this.sessionState === "PROVISIONING" && this.startRetries < 3) {
+      this.startRetries++;
+      console.log(`[onStop] Container died during provisioning, retry ${this.startRetries}/3`);
+      await new Promise(r => setTimeout(r, 2000));
+      const sessionId = this.ctx.id.name!;
+      void this.startContainer(sessionId);
+      return;
+    }
     await this.closeSession();
   }
 
@@ -310,15 +322,16 @@ export class BaseSession extends Container<Env> {
 
     await this.flushLogsToR2();
     await this.flushSessionToR2();
-    await this.notifyQueueManagerOfClosure();
 
     try { await this.stop(); }
     catch(e) { console.error("Error stopping container:", e); }
+
+    await this.notifyQueueManagerOfClosure();
   }
 
   async notifyQueueManagerOfClosure() {
     const queueDO = this.env.QUEUE_DO.get(this.env.QUEUE_DO.idFromName("global-queue"));
-    void queueDO.fetch("http://do/api/session-closed", {
+    await queueDO.fetch("http://do/api/session-closed", {
       method: "POST",
       headers: {"Content-Type": "application/json"},
       body: JSON.stringify({ sessionId: this.ctx.id.name! })
@@ -423,14 +436,35 @@ export class QueueDO extends DurableObject<Env> {
     resolve: (value: string) => void
   }[];
   resolvedTickets: Map<string, { sessionId: string; sessionType: string }>;
-  maxSessions: number;
+  maxPerType: Record<string, number>;
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
     this.activeSessions = new Map();
     this.waitingQueue = [];
     this.resolvedTickets = new Map();
-    this.maxSessions = 10;
+    this.maxPerType = {
+      "public": 10,
+      "sixty-four": 5,
+      "prerelease": 2,
+      "dev": 2,
+    };
+
+  }
+
+  activeCountForType(type: string): number {
+    let count = 0;
+    for (const t of this.activeSessions.values()) {
+      if (t === type) count++;
+    }
+    return count;
+  }
+
+  maxTotalSessions = 12;
+
+  hasCapacity(type: string): boolean {
+    const max = this.maxPerType[type] ?? 2;
+    return this.activeCountForType(type) < max && this.activeSessions.size < this.maxTotalSessions;
   }
 
   async fetch(request: Request): Promise<Response> {
@@ -438,18 +472,16 @@ export class QueueDO extends DurableObject<Env> {
 
     if (url.pathname === "/api/request-session") {
       const sessionType = url.searchParams.get("type") || "public";
-      if (this.activeSessions.size < this.maxSessions) {
+      if (this.hasCapacity(sessionType)) {
         const sessionId = crypto.randomUUID();
         this.activeSessions.set(sessionId, sessionType);
         return new Response(JSON.stringify({ status: "READY", sessionId }), { headers: { "Content-Type": "application/json" }, });
       } else {
         const ticketId = crypto.randomUUID();
-        const position = this.waitingQueue.length + 1;
-
-        const sessionId = await new Promise<string>((resolve) => {
-          this.waitingQueue.push({ ticketId, sessionType, resolve });
-        });
-        this.resolvedTickets.set(ticketId, { sessionId, sessionType });
+        this.waitingQueue.push({ ticketId, sessionType, resolve: (sessionId: string) => {
+          this.resolvedTickets.set(ticketId, { sessionId, sessionType });
+        }});
+        const position = this.waitingQueue.filter(w => w.sessionType === sessionType).length;
 
         return new Response(JSON.stringify({
           status: "QUEUED",
@@ -483,8 +515,8 @@ export class QueueDO extends DurableObject<Env> {
         });
       }
 
-      const position = this.waitingQueue.findIndex(p => p.ticketId === ticketId);
-      if (position === -1) {
+      const entry = this.waitingQueue.find(p => p.ticketId === ticketId);
+      if (!entry) {
         return new Response(JSON.stringify({
           error: "Ticket not found or already processed."
         }), {
@@ -492,9 +524,13 @@ export class QueueDO extends DurableObject<Env> {
         })
       }
 
+      const position = this.waitingQueue
+        .filter(w => w.sessionType === entry.sessionType)
+        .findIndex(w => w.ticketId === ticketId) + 1;
+
       return new Response(JSON.stringify({
         status: "QUEUED",
-        position: position + 1
+        position
       }), {
         headers: {
           "Content-Type": "application/json"
@@ -504,14 +540,17 @@ export class QueueDO extends DurableObject<Env> {
 
     if (url.pathname === "/api/session-closed") {
       const { sessionId } = await request.json<{sessionId: string}>();
+      const closedType = this.activeSessions.get(sessionId);
       this.activeSessions.delete(sessionId);
 
-      if (this.waitingQueue.length > 0) {
-        const nextInLine = this.waitingQueue.shift()!;
-        const newSessionId = crypto.randomUUID();
-
-        this.activeSessions.set(newSessionId, nextInLine.sessionType);
-        nextInLine.resolve(newSessionId);
+      if (closedType) {
+        const idx = this.waitingQueue.findIndex(w => w.sessionType === closedType);
+        if (idx !== -1) {
+          const nextInLine = this.waitingQueue.splice(idx, 1)[0];
+          const newSessionId = crypto.randomUUID();
+          this.activeSessions.set(newSessionId, nextInLine.sessionType);
+          nextInLine.resolve(newSessionId);
+        }
       }
 
       return new Response("Session closed and slot freed.", { status: 200 });

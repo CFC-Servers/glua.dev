@@ -18,28 +18,28 @@
     ],
     "containers": [
         {
-            "max_instances": 10,
+            "max_instances": 13,
             "name": "glua-dev-gmod-public",
             "class_name": "GmodPublic",
             "image": "registry.cloudflare.com/dbf79eb4394912bf04f2408ce80546a4/glua-dev-public:cf",
             "instance_type": "standard-1"
         },
         {
-            "max_instances": 5,
+            "max_instances": 8,
             "name": "glua-dev-gmod-sixty-four",
             "class_name": "GmodSixtyFour",
             "image": "registry.cloudflare.com/dbf79eb4394912bf04f2408ce80546a4/glua-dev-sixtyfour:cf",
             "instance_type": "standard-1"
         },
         {
-            "max_instances": 2,
+            "max_instances": 5,
             "name": "glua-dev-gmod-prerelease",
             "class_name": "GmodPrerelease",
             "image": "registry.cloudflare.com/dbf79eb4394912bf04f2408ce80546a4/glua-dev-prerelease:cf",
             "instance_type": "standard-1"
         },
         {
-            "max_instances": 2,
+            "max_instances": 5,
             "name": "glua-dev-gmod-dev",
             "class_name": "GmodDev",
             "image": "registry.cloudflare.com/dbf79eb4394912bf04f2408ce80546a4/glua-dev-dev:cf",
