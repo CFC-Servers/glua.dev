@@ -3,6 +3,11 @@
     import { sessionState, sessionMetadata, sessionTimer } from "./stores";
     import SessionMetadata from "./SessionMetadata.svelte";
     import TimeoutBar from "./TimeoutBar.svelte";
+    import EndSessionButton from "./EndSessionButton.svelte";
+
+    import { createEventDispatcher } from "svelte";
+
+    const dispatch = createEventDispatcher();
 
     export let socket: WebSocket | null;
 
@@ -108,6 +113,9 @@
                     <div class="border-t border-gray-700 pt-3">
                         <SessionMetadata />
                     </div>
+                    {#if $sessionState === "active"}
+                        <EndSessionButton on:endsession={() => dispatch("endsession")} />
+                    {/if}
                 </div>
             {/if}
         </div>

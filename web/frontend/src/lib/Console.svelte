@@ -186,6 +186,12 @@
         };
     }
 
+    function endSession() {
+        if (socket?.readyState === WebSocket.OPEN) {
+            socket.send(JSON.stringify({ type: "CLOSE_SESSION" }));
+        }
+    }
+
     function sendCommand(commandText: string) {
         if (socket?.readyState === WebSocket.OPEN) {
             virtualConsole.addLines([`\u001b[92m> ${commandText}\u001b[0m`]);
@@ -224,7 +230,7 @@
 </script>
 
 <div id="console-container" class="h-full flex flex-col bg-gray-900 relative">
-    <StatusPanel {socket} />
+    <StatusPanel {socket} on:endsession={endSession} />
     
     <div bind:this={outputContainer} class="flex-grow overflow-y-auto overflow-x-hidden p-4"></div>
     <div class="mt-auto p-4">

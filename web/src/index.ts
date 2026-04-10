@@ -251,6 +251,13 @@ export class BaseSession extends Container<Env> {
         this.handleExtensionRequest();
         return;
       }
+      if (message.type === "CLOSE_SESSION") {
+        if (this.sessionState === "ACTIVE") {
+          console.log("Browser requested session close");
+          this.closeSession();
+        }
+        return;
+      }
       if (this.containerSocket?.readyState === WebSocket.OPEN) {
         if (message.type === "SCRIPT") {
             const content = message.payload.content || "";
