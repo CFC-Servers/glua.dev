@@ -43,13 +43,26 @@ type HealthStats struct {
 	DiskUsage float64 `json:"diskusage"`
 }
 
+// ANSI color helpers for user-facing log messages
+var (
+	colorReset  = "\033[0m"
+	colorRed    = "\033[31m"
+	colorGreen  = "\033[32m"
+	colorOrange = "\033[33m"
+)
+
+func colored(color, msg string) string {
+	return color + msg + colorReset
+}
+
 var (
 	workerURL   = os.Getenv("WORKER_URL")
 	sessionID   = os.Getenv("SESSION_ID")
 	logFilePath = "/home/steam/gmodserver/garrysmod/console.log"
 	pidFilePath = "/home/steam/gmodserver/garrysmod/gmod.pid"
 	metadataDir = "/home/steam/metadata"
-	scriptDir   = "/home/steam/gmodserver/garrysmod/lua/gluadev"
+	scriptDir      = "/home/steam/gmodserver/garrysmod/lua/gluadev"
+	heartbeatPath  = "/home/steam/gmodserver/garrysmod/data/gluadev/heartbeat.txt"
 	scriptCount = 0
 
 	gameBranch   string
@@ -91,9 +104,10 @@ func main() {
 	go tailLogs(ctx, writeChan)
 	go sendHealthStats(ctx, writeChan)
 	go monitorGameProcess(ctx, pid, writeChan, cancel)
+	go monitorHeartbeat(ctx, pid, writeChan, cancel)
 
 	listenForCommands(ctx, conn)
-	shutdown(writeChan, cancel)
+	shutdown(writeChan, cancel, "")
 }
 
 func getGameVersionString() string {
@@ -107,6 +121,7 @@ func getGameVersionString() string {
         "x86-64":    "sixty-four",
         "prerelease": "prerelease",
         "dev":     "dev",
+        "network-test":     "network-test",
     }
 
     if version, ok := versionNameMap[versionName]; ok {
@@ -196,7 +211,7 @@ func monitorGameProcess(ctx context.Context, pid int, writeChan chan<- WebSocket
 	process, err := os.FindProcess(pid)
 	if err != nil {
 		log.Printf("Could not find process with PID %d: %v. Shutting down.", pid, err)
-		shutdown(writeChan, cancel)
+		shutdown(writeChan, cancel, colored(colorRed, "Game server process not found."))
 		return
 	}
 
@@ -208,11 +223,76 @@ func monitorGameProcess(ctx context.Context, pid int, writeChan chan<- WebSocket
 			err := process.Signal(syscall.Signal(0))
 			if err != nil {
 				log.Printf("Game server process (PID: %d) is no longer running (err: %v). Shutting down.", pid, err)
-				shutdown(writeChan, cancel)
+				shutdown(writeChan, cancel, colored(colorOrange, "Game server process exited."))
 				return
 			}
 		}
 	}
+}
+
+func waitForFile(ctx context.Context, path string, timeout time.Duration) bool {
+	ticker := time.NewTicker(1 * time.Second)
+	defer ticker.Stop()
+
+	deadline := time.After(timeout)
+	for {
+		select {
+		case <-ctx.Done():
+			return false
+		case <-deadline:
+			return false
+		case <-ticker.C:
+			if _, err := os.Stat(path); err == nil {
+				return true
+			}
+		}
+	}
+}
+
+func monitorHeartbeat(ctx context.Context, pid int, writeChan chan<- WebSocketMessageOut, cancel context.CancelFunc) {
+	if !waitForFile(ctx, heartbeatPath, 15*time.Second) {
+		log.Println("Heartbeat file never appeared after 15s, server is unresponsive.")
+		killStaleServer(pid, 15, writeChan, cancel)
+		return
+	}
+
+	log.Println("Heartbeat file found, monitoring started.")
+
+	ticker := time.NewTicker(1 * time.Second)
+	defer ticker.Stop()
+
+	lastGoodHeartbeat := time.Now()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if data, err := os.ReadFile(heartbeatPath); err == nil {
+				if ts, err := strconv.ParseInt(strings.TrimSpace(string(data)), 10, 64); err == nil {
+					if time.Now().Unix()-ts <= 15 {
+						lastGoodHeartbeat = time.Now()
+					}
+				}
+			}
+
+			if time.Since(lastGoodHeartbeat) >= 15*time.Second {
+				killStaleServer(pid, int64(time.Since(lastGoodHeartbeat).Seconds()), writeChan, cancel)
+				return
+			}
+		}
+	}
+}
+
+func killStaleServer(pid int, age int64, writeChan chan<- WebSocketMessageOut, cancel context.CancelFunc) {
+	log.Printf("Server heartbeat lost (%ds stale). Killing PID %d.", age, pid)
+
+	process, err := os.FindProcess(pid)
+	if err == nil {
+		process.Signal(syscall.SIGKILL)
+	}
+
+	shutdown(writeChan, cancel, colored(colorRed, fmt.Sprintf("Server heartbeat lost (%ds ago). Killing unresponsive server 🔪", age)))
 }
 
 func sendMetadata(writeChan chan<- WebSocketMessageOut) {
@@ -227,11 +307,14 @@ func sendMetadata(writeChan chan<- WebSocketMessageOut) {
 	writeChan <- message
 }
 
-func shutdown(writeChan chan<- WebSocketMessageOut, cancel context.CancelFunc) {
+func shutdown(writeChan chan<- WebSocketMessageOut, cancel context.CancelFunc, message string) {
 	shutdownOnce.Do(func() {
 		log.Println("Initiating shutdown sequence...")
 		cancel()
 
+		if message != "" {
+			writeChan <- WebSocketMessageOut{Type: "LOG", Payload: message}
+		}
 		writeChan <- WebSocketMessageOut{Type: "AGENT_SHUTDOWN", Payload: "Agent is shutting down."}
 
 		close(writeChan)

@@ -13,7 +13,7 @@ echo "Starting the server with gamemode: $gamemode"
 pidfile="gmod.pid"
 
 # Dirs
-mkdir -p "$server/data"
+mkdir -p "$server/data/gluadev"
 mkdir -p "$server/lua/gluadev"
 touch "$server/console.log"
 

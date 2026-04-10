@@ -5,6 +5,9 @@ local Harness = {
     --- The diretory in `lua/` where scripts are saved and executed
     scriptDir = "gluadev",
 
+    --- The directory in `data/` where ops-level files are stored
+    dataDir = "gluadev",
+
     --- Script names that have already been seen and executed
     --- (This is poopy but will be fine for now)
     seenScripts = {},
@@ -64,13 +67,19 @@ end
 do
     local ipairs = ipairs
     local include = include
+    local os_time = os.time
     local file_Find = file.Find
+    local file_Write = file.Write
+    local timer_Create = timer.Create
     local timer_Simple = timer.Simple
     local ProtectedCall = ProtectedCall
 
+    local dataDir = Harness.dataDir
     local scriptDir = Harness.scriptDir
     local seenScripts = Harness.seenScripts
 
+    --- Logs and executes the given file
+    --- @param filename string The filename within scriptDir to process
     local function processFile( filename )
         if seenScripts[filename] then return end
 
@@ -82,6 +91,7 @@ do
         ProtectedCall( include, scriptPath )
     end
 
+    --- Creates the timer that watches for new script creation
     function Harness.CreateScriptWatcher()
         local findString = scriptDir .. "/*.lua"
 
@@ -97,10 +107,20 @@ do
 
         timer_Simple( 0.25, tick )
     end
+
+    --- Starts the heartbeat timer
+    function Harness.StartHeartbeat()
+        local heartbeatFile = dataDir .. "/" .. "heartbeat.txt"
+
+        timer_Create( "GLuaDev_Heartbeat", 1, 0, function()
+            file_Write( heartbeatFile, os_time() )
+        end )
+    end
 end
 
 function Harness:Init()
     self.CreateScriptWatcher()
+    self.StartHeartbeat()
 end
 
 Harness:Init()
