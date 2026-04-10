@@ -99,6 +99,14 @@ const locationHeader = (ctx: RequestContext): string => {
   return `${flag(ctx.country)} ${place}`;
 };
 
+const sessionHistoryUrl = (sessionId: string): string =>
+  `https://glua.dev/?session=${encodeURIComponent(sessionId)}`;
+
+const networkFields = (ctx: RequestContext): DiscordEmbedField[] => [
+  { name: "IP",      value: ipLink(ctx.ip), inline: true },
+  { name: "Network", value: ispLink(ctx),   inline: true },
+];
+
 const contextSubtext = (ctx: RequestContext | undefined): string | undefined => {
   if (!ctx) return undefined;
 
@@ -128,25 +136,26 @@ export function buildSessionStartedEmbed(e: SessionStartedEvent): DiscordEmbed {
 
   const lines: string[] = [
     `### ${locationHeader(ctx)}`,
-    `New \`${label}\` session from ${ipLink(ctx.ip)}`,
-    sub(`${ispLink(ctx)} · started ${relativeTimestamp()}${ctx.colo ? ` · edge ${code(ctx.colo)}` : ""}`),
+    sub(`started ${relativeTimestamp()}${ctx.colo ? ` · edge ${code(ctx.colo)}` : ""}`),
   ];
 
   const fields: DiscordEmbedField[] = [
     { name: "Session", value: code(truncate(e.sessionId, 100)), inline: true },
-    { name: "Branch",  value: `${emoji} ${label}`, inline: true },
+    { name: "Branch",  value: `${emoji} ${code(label)}`,         inline: true },
+    ...networkFields(ctx),
   ];
 
   if (ctx.userAgent) {
     fields.push({
       name: "User-Agent",
-      value: "> " + truncate(ctx.userAgent, LIMIT_UA_INLINE),
+      value: "```\n" + truncate(ctx.userAgent, LIMIT_UA_INLINE) + "\n```",
       inline: false,
     });
   }
 
   return {
-    title: `${emoji} Session started · ${label}`,
+    title: "🚀 Session started",
+    url: sessionHistoryUrl(e.sessionId),
     description: truncate(lines.join("\n"), LIMIT_DESCRIPTION),
     color: COLORS.sessionStart,
     timestamp: new Date().toISOString(),
@@ -158,31 +167,30 @@ export function buildSessionStartedEmbed(e: SessionStartedEvent): DiscordEmbed {
 export function buildSessionEndedEmbed(e: SessionEndedEvent): DiscordEmbed {
   const { emoji, label } = branchMeta(e.branch);
   const reason = CLOSE_REASON_DISPLAY[e.reason];
-
+  const ctx = e.context;
   const durationMs = e.startedAt !== undefined ? e.endedAt - e.startedAt : undefined;
-  const historyUrl = `https://glua.dev/?session=${encodeURIComponent(e.sessionId)}`;
 
   const lines: string[] = [
-    `### 🏁 ${label} session ended`,
-    durationMs !== undefined
-      ? `Ran for **${duration(durationMs)}** · ${link("📜 View history", historyUrl)}`
-      : link("📜 View history", historyUrl),
-    code(truncate(e.sessionId, 100)),
+    `### ${ctx ? locationHeader(ctx) : "🌐 Unknown location"}`,
+    sub(`ended ${relativeTimestamp()}${durationMs !== undefined ? ` · ran for **${duration(durationMs)}**` : ""}`),
   ];
-
-  const subtext = contextSubtext(e.context);
-  if (subtext) lines.push(subtext);
 
   const fields: DiscordEmbedField[] = [
-    { name: "Close reason", value: ansi(reason.ansiCode, `${reason.icon} ${reason.label}`), inline: false },
-    { name: "Scripts",   value: String(e.scriptCount),  inline: true },
-    { name: "Log lines", value: String(e.logLineCount), inline: true },
-    { name: "Extended",  value: e.extensionGranted ? "yes" : "no", inline: true },
+    { name: "Session", value: code(truncate(e.sessionId, 100)), inline: true },
+    { name: "Branch",  value: `${emoji} ${code(label)}`,         inline: true },
   ];
+  if (ctx) fields.push(...networkFields(ctx));
+
+  fields.push(
+    { name: "Close reason", value: ansi(reason.ansiCode, `${reason.icon} ${reason.label}`), inline: false },
+    { name: "Scripts",   value: code(String(e.scriptCount)),  inline: true },
+    { name: "Log lines", value: code(String(e.logLineCount)), inline: true },
+    { name: "Extended",  value: e.extensionGranted ? "✅" : "❌", inline: true },
+  );
 
   return {
-    title: `${emoji} Session ended · ${label} · ${reason.label}`,
-    url: historyUrl,
+    title: `🏁 Session ended · ${reason.label}`,
+    url: sessionHistoryUrl(e.sessionId),
     description: truncate(lines.join("\n"), LIMIT_DESCRIPTION),
     color: reason.color,
     timestamp: new Date(e.endedAt).toISOString(),
