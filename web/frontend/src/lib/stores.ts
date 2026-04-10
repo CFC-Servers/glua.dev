@@ -9,5 +9,10 @@ export interface ScriptEntry {
 }
 export const scriptMap = writable<Record<string, ScriptEntry>>({});
 export const viewingScript = writable<{ name: string; content: string } | null>(null);
-export const sessionMetadata = writable<{ branch: string; gameVersion: string; containerTag: string; startedAt: number; endedAt?: number } | null>(null);
+export interface SessionOptions {
+    map: string;
+    gamemode: string;
+    gitRepos: string[];
+}
+export const sessionMetadata = writable<{ branch: string; gameVersion: string; containerTag: string; startedAt: number; endedAt?: number; options?: SessionOptions } | null>(null);
 export const sessionTimer = writable<{ endTime: number; duration: number; extensionThreshold: number } | null>(null);

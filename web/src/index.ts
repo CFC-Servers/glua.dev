@@ -7,6 +7,69 @@ interface WebSocketMessage {
   payload?: any;
 }
 
+interface SessionOptions {
+  map: string;
+  gamemode: string;
+  gitRepos: string[];
+}
+
+const ALLOWED_MAPS = ["gm_construct", "gm_flatgrass", "gm_fork"];
+const DEFAULT_OPTIONS: SessionOptions = { map: "gm_construct", gamemode: "sandbox", gitRepos: [] };
+const REPO_SIZE_LIMIT_KB = 50 * 1024; // 50MB
+
+function validateSessionOptions(raw: any): SessionOptions {
+  const opts = { ...DEFAULT_OPTIONS };
+  if (raw?.map && ALLOWED_MAPS.includes(raw.map)) opts.map = raw.map;
+  if (raw?.gamemode && typeof raw.gamemode === "string") {
+    const gm = raw.gamemode.slice(0, 64).replace(/[^a-zA-Z0-9_]/g, "");
+    if (gm) opts.gamemode = gm;
+  }
+  if (Array.isArray(raw?.gitRepos)) {
+    opts.gitRepos = raw.gitRepos
+      .filter((r: any) => typeof r === "string" && r.length <= 256)
+      .filter((r: string) => {
+        try { return new URL(r).hostname === "github.com"; }
+        catch { return false; }
+      })
+      .slice(0, 5);
+  }
+  return opts;
+}
+
+function parseGitHubRepo(repoUrl: string): string | null {
+  try {
+    const url = new URL(repoUrl);
+    if (url.hostname !== "github.com") return null;
+    const segments = url.pathname.replace(/^\//, "").replace(/\.git$/, "").split("/").filter(Boolean);
+    if (segments.length < 2) return null;
+    const owner = segments[0];
+    const repo = segments[1];
+    if (!/^[a-zA-Z0-9._-]+$/.test(owner) || !/^[a-zA-Z0-9._-]+$/.test(repo)) return null;
+    return `${owner}/${repo}`;
+  } catch { return null; }
+}
+
+async function checkRepoSize(repoUrl: string): Promise<{ ok: boolean; sizeKB?: number; error?: string }> {
+  const path = parseGitHubRepo(repoUrl);
+  if (!path) return { ok: false, error: "Only GitHub repositories are supported" };
+
+  try {
+    const res = await fetch(`https://api.github.com/repos/${path}`, {
+      headers: { "User-Agent": "glua-dev" },
+    });
+    if (!res.ok) return { ok: false, error: "Repository not found or not public" };
+    const data = await res.json<{ size?: number; private?: boolean }>();
+    if (data.private) return { ok: false, error: "Repository is private" };
+    const sizeKB = data.size ?? 0;
+    if (sizeKB > REPO_SIZE_LIMIT_KB) {
+      return { ok: false, sizeKB, error: `Repository is too large (${Math.round(sizeKB / 1024)}MB, limit is ${Math.round(REPO_SIZE_LIMIT_KB / 1024)}MB)` };
+    }
+    return { ok: true, sizeKB };
+  } catch (e) {
+    return { ok: false, error: "Failed to check repository" };
+  }
+}
+
 export interface Env {
   GMOD_PUBLIC: DurableObjectNamespace;
   GMOD_SIXTYFOUR: DurableObjectNamespace;
@@ -32,7 +95,8 @@ export class BaseSession extends Container<Env> {
   logLineCount: number;
   scriptBuffer: Record<string, { content: string; logLine: number }>;
   scriptCount: number;
-  sessionMetadata: { branch: string; gameVersion: string; containerTag: string; startedAt: number; endedAt?: number } | null;
+  sessionMetadata: { branch: string; gameVersion: string; containerTag: string; startedAt: number; endedAt?: number; options?: SessionOptions } | null;
+  sessionOptions: SessionOptions | null;
   sessionEndTime?: number;
   sessionDuration?: number;
   extensionGranted = false;
@@ -51,6 +115,7 @@ export class BaseSession extends Container<Env> {
     this.logLineCount = 0;
     this.scriptBuffer = {};
     this.scriptCount = 0;
+    this.sessionOptions = null;
   }
 
   override async fetch(request: Request): Promise<Response> {
@@ -172,12 +237,22 @@ export class BaseSession extends Container<Env> {
 
   async startContainer(sessionId: string) {
     try {
-      await this.start({
-        envVars: {
-          SESSION_ID: sessionId,
-          WORKER_URL: "https://beta.glua.dev",
-        }
-      });
+      // Fetch session options from QueueDO
+      const queueDO = this.env.QUEUE_DO.get(this.env.QUEUE_DO.idFromName("global-queue"));
+      const optionsRes = await queueDO.fetch(`http://do/api/get-session-options?session=${sessionId}`);
+      this.sessionOptions = await optionsRes.json<SessionOptions>();
+
+      const envVars: Record<string, string> = {
+        SESSION_ID: sessionId,
+        WORKER_URL: "https://beta.glua.dev",
+        MAP: this.sessionOptions.map,
+        GAMEMODE: this.sessionOptions.gamemode,
+      };
+      if (this.sessionOptions.gitRepos.length > 0) {
+        envVars.GIT_REPOS = this.sessionOptions.gitRepos.join(",");
+      }
+
+      await this.start({ envVars });
     } catch(e) {
       console.error("Container Start Error:", e);
       const errorMessage = `\u001b[31mFailed to start container: ${e instanceof Error ? e.message : String(e)}\u001b[0m`;
@@ -229,6 +304,9 @@ export class BaseSession extends Container<Env> {
         case "METADATA":
           this.sessionMetadata = message.payload as { branch: string; gameVersion: string; containerTag: string; startedAt: number };
           this.sessionMetadata.startedAt = Date.now();
+          if (this.sessionOptions) {
+            this.sessionMetadata.options = this.sessionOptions;
+          }
           this.broadcastToBrowsers("CONTEXT_UPDATE", this.sessionMetadata);
           break;
         case "AGENT_SHUTDOWN":
@@ -429,11 +507,12 @@ export class GmodPrerelease extends BaseSession {}
 export class GmodDev extends BaseSession {}
 
 export class QueueDO extends DurableObject<Env> {
-  activeSessions: Map<string, string>; // sessionId → type
+  activeSessions: Map<string, { type: string; options: SessionOptions }>;
   waitingQueue: {
     ticketId: string;
     sessionType: string;
-    resolve: (value: string) => void
+    options: SessionOptions;
+    resolve: (value: string) => void;
   }[];
   resolvedTickets: Map<string, { sessionId: string; sessionType: string }>;
   maxPerType: Record<string, number>;
@@ -449,13 +528,12 @@ export class QueueDO extends DurableObject<Env> {
       "prerelease": 2,
       "dev": 2,
     };
-
   }
 
   activeCountForType(type: string): number {
     let count = 0;
-    for (const t of this.activeSessions.values()) {
-      if (t === type) count++;
+    for (const entry of this.activeSessions.values()) {
+      if (entry.type === type) count++;
     }
     return count;
   }
@@ -471,14 +549,36 @@ export class QueueDO extends DurableObject<Env> {
     const url = new URL(request.url);
 
     if (url.pathname === "/api/request-session") {
-      const sessionType = url.searchParams.get("type") || "public";
+      let sessionType = "public";
+      let options = DEFAULT_OPTIONS;
+
+      if (request.method === "POST") {
+        const body = await request.json<{ type?: string; options?: any }>();
+        sessionType = body.type || "public";
+        options = validateSessionOptions(body.options);
+      } else {
+        sessionType = url.searchParams.get("type") || "public";
+      }
+
+      // Check repo sizes before allowing the session
+      if (options.gitRepos.length > 0) {
+        const checks = await Promise.all(options.gitRepos.map(checkRepoSize));
+        const failed = checks.find(c => !c.ok);
+        if (failed) {
+          return new Response(JSON.stringify({ status: "ERROR", error: failed.error }), {
+            status: 400,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+      }
+
       if (this.hasCapacity(sessionType)) {
         const sessionId = crypto.randomUUID();
-        this.activeSessions.set(sessionId, sessionType);
-        return new Response(JSON.stringify({ status: "READY", sessionId }), { headers: { "Content-Type": "application/json" }, });
+        this.activeSessions.set(sessionId, { type: sessionType, options });
+        return new Response(JSON.stringify({ status: "READY", sessionId }), { headers: { "Content-Type": "application/json" } });
       } else {
         const ticketId = crypto.randomUUID();
-        this.waitingQueue.push({ ticketId, sessionType, resolve: (sessionId: string) => {
+        this.waitingQueue.push({ ticketId, sessionType, options, resolve: (sessionId: string) => {
           this.resolvedTickets.set(ticketId, { sessionId, sessionType });
         }});
         const position = this.waitingQueue.filter(w => w.sessionType === sessionType).length;
@@ -540,20 +640,29 @@ export class QueueDO extends DurableObject<Env> {
 
     if (url.pathname === "/api/session-closed") {
       const { sessionId } = await request.json<{sessionId: string}>();
-      const closedType = this.activeSessions.get(sessionId);
+      const closed = this.activeSessions.get(sessionId);
       this.activeSessions.delete(sessionId);
 
-      if (closedType) {
-        const idx = this.waitingQueue.findIndex(w => w.sessionType === closedType);
+      if (closed) {
+        const idx = this.waitingQueue.findIndex(w => w.sessionType === closed.type);
         if (idx !== -1) {
           const nextInLine = this.waitingQueue.splice(idx, 1)[0];
           const newSessionId = crypto.randomUUID();
-          this.activeSessions.set(newSessionId, nextInLine.sessionType);
+          this.activeSessions.set(newSessionId, { type: nextInLine.sessionType, options: nextInLine.options });
           nextInLine.resolve(newSessionId);
         }
       }
 
       return new Response("Session closed and slot freed.", { status: 200 });
+    }
+
+    if (url.pathname === "/api/get-session-options") {
+      const sessionId = url.searchParams.get("session");
+      if (!sessionId || !this.activeSessions.has(sessionId)) {
+        return new Response(JSON.stringify(DEFAULT_OPTIONS), { headers: { "Content-Type": "application/json" } });
+      }
+      const { options } = this.activeSessions.get(sessionId)!;
+      return new Response(JSON.stringify(options), { headers: { "Content-Type": "application/json" } });
     }
 
     if (url.pathname === "/api/session-status") {
@@ -564,7 +673,7 @@ export class QueueDO extends DurableObject<Env> {
 
       // Check if session is currently active
       if (this.activeSessions.has(sessionId)) {
-        const sessionType = this.activeSessions.get(sessionId)!;
+        const { type: sessionType } = this.activeSessions.get(sessionId)!;
         return new Response(JSON.stringify({ status: "active", sessionType }), { headers: { "Content-Type": "application/json" } });
       }
 

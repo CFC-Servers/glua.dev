@@ -17,6 +17,19 @@ mkdir -p "$server/data"
 mkdir -p "$server/lua/gluadev"
 touch "$server/console.log"
 
+# Clone git addon repos
+if [ -n "$GIT_REPOS" ]; then
+    IFS=',' read -ra REPOS <<< "$GIT_REPOS"
+    repo_index=0
+    for repo in "${REPOS[@]}"; do
+        repo_name=$(basename "$repo" .git)
+        target_dir="$server/addons/${repo_index}_${repo_name}"
+        echo "Cloning addon: $repo -> addons/${repo_index}_${repo_name}"
+        timeout 15s git clone --depth 1 "$repo" "$target_dir" 2>&1 || echo "Failed to clone $repo"
+        repo_index=$((repo_index + 1))
+    done
+fi
+
 # Screen setup
 mkdir -p "$home/.screen"
 chmod 700 "$home/.screen"
