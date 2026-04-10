@@ -12,11 +12,11 @@
 </script>
 
 {#if confirming}
-    <div class="flex items-center justify-between text-xs">
-        <span class="text-gray-300">End session?</span>
-        <div class="flex gap-2">
-            <button on:click={confirm} class="text-red-400 hover:text-red-300 font-semibold transition-colors">Yes</button>
-            <button on:click={() => confirming = false} class="text-gray-400 hover:text-gray-300 transition-colors">No</button>
+    <div class="w-full space-y-1.5">
+        <p class="text-xs text-gray-400 text-center">End this session?</p>
+        <div class="flex justify-center gap-2">
+            <button on:click={confirm} class="w-[38%] text-xs py-1.5 rounded-md bg-red-600/20 hover:bg-red-600/35 text-red-400 hover:text-red-300 border border-red-500/30 font-semibold transition-colors">Yes</button>
+            <button on:click={() => confirming = false} class="w-[38%] text-xs py-1.5 rounded-md bg-gray-700/40 hover:bg-gray-700/60 text-gray-400 hover:text-gray-300 border border-gray-600/30 transition-colors">No</button>
         </div>
     </div>
 {:else}
