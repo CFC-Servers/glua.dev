@@ -28,6 +28,8 @@
 
     $: inactive = $sessionState === 'closed' || $sessionState === 'readonly';
 
+    let cleanClose = false;
+
     class VirtualConsole {
         private container: HTMLDivElement;
         private ansiUp: any;
@@ -155,6 +157,7 @@
                         sessionState.set("active");
                         break;
                     case "SESSION_CLOSED":
+                        cleanClose = true;
                         virtualConsole.addLines(["\u001b[31mSession has been closed by the server.\u001b[0m"]);
                         sessionState.set("closed");
                         commandInput.disabled = true;
@@ -176,7 +179,13 @@
         };
 
         socket.onclose = () => {
-            virtualConsole.addLines(["\u001b[90mConnection closed.\u001b[0m"]);
+            if (cleanClose) {
+                virtualConsole.addLines(["\u001b[90mConnection closed.\u001b[0m"]);
+            } else {
+                virtualConsole.addLines(["\u001b[31mConnection lost unexpectedly. \u001b[90m(Sorry! This can happen when we deploy a new version of glua.dev)\u001b[0m"]);
+                sessionState.set("closed");
+                appendEndedCard(outputContainer);
+            }
             commandInput.disabled = true;
         };
 
