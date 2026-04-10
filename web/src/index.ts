@@ -428,11 +428,15 @@ export class GmodSixtyFour extends BaseSession {}
 export class GmodPrerelease extends BaseSession {}
 export class GmodDev extends BaseSession {}
 
+const MAX_SESSIONS_PER_IP = 2;
+
 export class QueueDO extends DurableObject<Env> {
   activeSessions: Map<string, string>; // sessionId → type
+  sessionIPs: Map<string, string>; // sessionId → IP
   waitingQueue: {
     ticketId: string;
     sessionType: string;
+    ip: string;
     resolve: (value: string) => void
   }[];
   resolvedTickets: Map<string, { sessionId: string; sessionType: string }>;
@@ -441,6 +445,7 @@ export class QueueDO extends DurableObject<Env> {
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
     this.activeSessions = new Map();
+    this.sessionIPs = new Map();
     this.waitingQueue = [];
     this.resolvedTickets = new Map();
     this.maxPerType = {
@@ -450,6 +455,14 @@ export class QueueDO extends DurableObject<Env> {
       "dev": 2,
     };
 
+  }
+
+  activeSessionCountForIP(ip: string): number {
+    let count = 0;
+    for (const [sessionId, sessionIp] of this.sessionIPs) {
+      if (sessionIp === ip && this.activeSessions.has(sessionId)) count++;
+    }
+    return count;
   }
 
   activeCountForType(type: string): number {
@@ -472,13 +485,26 @@ export class QueueDO extends DurableObject<Env> {
 
     if (url.pathname === "/api/request-session") {
       const sessionType = url.searchParams.get("type") || "public";
+      const clientIP = request.headers.get("CF-Connecting-IP") || "unknown";
+
+      if (clientIP !== "unknown" && this.activeSessionCountForIP(clientIP) >= MAX_SESSIONS_PER_IP) {
+        return new Response(JSON.stringify({
+          status: "IP_LIMIT",
+          limit: MAX_SESSIONS_PER_IP,
+        }), {
+          status: 429,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+
       if (this.hasCapacity(sessionType)) {
         const sessionId = crypto.randomUUID();
         this.activeSessions.set(sessionId, sessionType);
+        this.sessionIPs.set(sessionId, clientIP);
         return new Response(JSON.stringify({ status: "READY", sessionId }), { headers: { "Content-Type": "application/json" }, });
       } else {
         const ticketId = crypto.randomUUID();
-        this.waitingQueue.push({ ticketId, sessionType, resolve: (sessionId: string) => {
+        this.waitingQueue.push({ ticketId, sessionType, ip: clientIP, resolve: (sessionId: string) => {
           this.resolvedTickets.set(ticketId, { sessionId, sessionType });
         }});
         const position = this.waitingQueue.filter(w => w.sessionType === sessionType).length;
@@ -542,6 +568,7 @@ export class QueueDO extends DurableObject<Env> {
       const { sessionId } = await request.json<{sessionId: string}>();
       const closedType = this.activeSessions.get(sessionId);
       this.activeSessions.delete(sessionId);
+      this.sessionIPs.delete(sessionId);
 
       if (closedType) {
         const idx = this.waitingQueue.findIndex(w => w.sessionType === closedType);
@@ -549,6 +576,7 @@ export class QueueDO extends DurableObject<Env> {
           const nextInLine = this.waitingQueue.splice(idx, 1)[0];
           const newSessionId = crypto.randomUUID();
           this.activeSessions.set(newSessionId, nextInLine.sessionType);
+          this.sessionIPs.set(newSessionId, nextInLine.ip);
           nextInLine.resolve(newSessionId);
         }
       }

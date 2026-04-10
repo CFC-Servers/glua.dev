@@ -17,6 +17,9 @@
 
             if (data.status === "READY") {
                 dispatch("startsession", { sessionId: data.sessionId, sessionType: containerType });
+            } else if (data.status === "IP_LIMIT") {
+                dispatch("iplimited", { limit: data.limit });
+                inQueue = false;
             } else if (data.status === "QUEUED") {
                 queuePosition = data.position;
                 pollQueueStatus(data.ticketId);

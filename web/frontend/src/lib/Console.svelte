@@ -230,6 +230,7 @@
     <div class="mt-auto p-4">
         <div class="flex items-center border-t border-gray-700 pt-3">
             <span class="{inactive ? 'text-gray-600' : 'text-green-400'} mr-2 shrink-0">&gt;</span>
+            <!-- svelte-ignore a11y-autofocus -->
             <input type="text" bind:this={commandInput} on:keydown={handleKeydown} class="w-full bg-transparent border-none focus:ring-0 focus:outline-none {inactive ? 'text-gray-600 placeholder-gray-600 cursor-not-allowed' : 'text-gray-200 placeholder-gray-500'}" placeholder="{inactive ? 'Session ended' : 'Enter command...'}" autocomplete="off" autofocus disabled>
         </div>
     </div>

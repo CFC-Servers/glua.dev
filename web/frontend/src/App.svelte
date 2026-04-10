@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount, afterUpdate } from "svelte";
   import Modal from "./lib/Modal.svelte";
+  import IPLimited from "./lib/IPLimited.svelte";
   import Console from "./lib/Console.svelte";
   import Editor from "./lib/Editor.svelte";
   import ScriptViewer from "./lib/ScriptViewer.svelte";
@@ -8,7 +9,8 @@
 
   let session = { id: null };
   let socket: WebSocket | null = null;
-  let view: "modal" | "loading" | "not-found" | "console" = "modal";
+  let view: "modal" | "loading" | "not-found" | "console" | "ip-limited" = "modal";
+  let ipLimit = 2;
   let readonlyLogs: string | null = null;
   let editorPanel: HTMLElement;
   let consolePanel: HTMLElement;
@@ -129,8 +131,10 @@
 
 <ScriptViewer />
 <main class="flex flex-row h-screen overflow-hidden">
-  {#if view === "modal"}
-    <Modal on:startsession={(e) => connectWebSocket(e.detail.sessionId, e.detail.sessionType)} />
+  {#if view === "ip-limited"}
+    <IPLimited limit={ipLimit} />
+  {:else if view === "modal"}
+    <Modal on:startsession={(e) => connectWebSocket(e.detail.sessionId, e.detail.sessionType)} on:iplimited={(e) => { ipLimit = e.detail.limit; view = "ip-limited"; }} />
   {:else if view === "loading"}
     <div class="flex items-center justify-center w-full h-full bg-gray-900">
       <span class="text-gray-500 font-mono text-sm">Loading session...</span>
@@ -161,7 +165,8 @@
       </button>
     </div>
     {#if $isEditorOpen}
-      <div id="resizer" on:mousedown={handleMouseDown}></div>
+      <!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
+      <div id="resizer" on:mousedown={handleMouseDown} role="separator" aria-orientation="vertical"></div>
       <div bind:this={editorPanel} class="h-full" style="width: 33%;">
         <Editor {socket} />
       </div>
