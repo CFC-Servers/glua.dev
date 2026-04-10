@@ -430,9 +430,15 @@ export class GmodDev extends BaseSession {}
 
 const MAX_SESSIONS_PER_IP = 2;
 
+async function hashIP(ip: string): Promise<string> {
+  const data = new TextEncoder().encode(ip);
+  const hash = await crypto.subtle.digest("SHA-256", data);
+  return btoa(String.fromCharCode(...new Uint8Array(hash)));
+}
+
 export class QueueDO extends DurableObject<Env> {
   activeSessions: Map<string, string>; // sessionId → type
-  sessionIPs: Map<string, string>; // sessionId → IP
+  sessionIPs: Map<string, string>; // sessionId → hashed IP
   waitingQueue: {
     ticketId: string;
     sessionType: string;
@@ -485,7 +491,8 @@ export class QueueDO extends DurableObject<Env> {
 
     if (url.pathname === "/api/request-session") {
       const sessionType = url.searchParams.get("type") || "public";
-      const clientIP = request.headers.get("CF-Connecting-IP") || "unknown";
+      const rawIP = request.headers.get("CF-Connecting-IP") || "unknown";
+      const clientIP = rawIP !== "unknown" ? await hashIP(rawIP) : "unknown";
 
       if (clientIP !== "unknown" && this.activeSessionCountForIP(clientIP) >= MAX_SESSIONS_PER_IP) {
         return new Response(JSON.stringify({
