@@ -16,7 +16,7 @@ ARG GLUA_DEV_TAG=unknown
 
 USER root
 ENV DEBIAN_FRONTEND=noninteractive
-RUN apt update && apt install -y --no-install-recommends --no-install-suggests screen && apt autoremove
+RUN apt-get update && apt-get install -y --no-install-recommends --no-install-suggests screen && rm -rf /var/lib/apt/lists/*
 
 ARG home=/home/steam
 ARG gmodroot=$home/gmodserver

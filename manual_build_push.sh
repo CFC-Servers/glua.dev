@@ -1,4 +1,4 @@
-GLUA_DEV_TAG=0.6.5
+GLUA_DEV_TAG=0.7
 
 ## Version Getter
 docker run \

@@ -49,33 +49,42 @@ runs:
       run: |
         cd ${{ inputs.path }}/docker
 
+        start=$SECONDS
         docker build \
           --build-arg="GMOD_BRANCH=${{ inputs.gmod_branch }}" \
           --build-arg="GAME_VERSION=${{ inputs.game_version }}" \
           --build-arg="GLUA_DEV_TAG=${{ inputs.tag_name }}" \
           --tag glua_dev_fat:latest \
           .
+        echo "::notice::Docker build took $((SECONDS - start))s"
+
+    - name: Determine base image name
+      id: base
+      shell: bash
+      run: |
+        if [ "${{ inputs.gmod_branch }}" = "x86-64" ]; then
+          echo "name=ghcr.io/cfc-servers/glua.dev/64bit" >> "$GITHUB_OUTPUT"
+        elif [ "${{ inputs.gmod_branch }}" = "dev" ]; then
+          echo "name=ghcr.io/cfc-servers/glua.dev/dev" >> "$GITHUB_OUTPUT"
+        elif [ "${{ inputs.gmod_branch }}" = "prerelease" ]; then
+          echo "name=ghcr.io/cfc-servers/glua.dev/prerelease" >> "$GITHUB_OUTPUT"
+        else
+          echo "name=ghcr.io/cfc-servers/glua.dev" >> "$GITHUB_OUTPUT"
+        fi
 
     - name: Make slim image
       shell: bash
       run: |
         cd ${{ inputs.path }}/docker
 
-        if [ "${{ inputs.gmod_branch }}" = "x86-64" ]; then
-          BASE=ghcr.io/cfc-servers/glua.dev/64bit
-        elif [ "${{ inputs.gmod_branch }}" = "dev" ]; then
-          BASE=ghcr.io/cfc-servers/glua.dev/dev
-        elif [ "${{ inputs.gmod_branch }}" = "prerelease" ]; then
-          BASE=ghcr.io/cfc-servers/glua.dev/prerelease
-        else
-          BASE=ghcr.io/cfc-servers/glua.dev
-        fi
-
+        BASE=${{ steps.base.outputs.name }}
         rawVersionTag=${{ inputs.tag_name }}
         id=${{ inputs.game_version }}
 
+        start=$SECONDS
         $GITHUB_WORKSPACE/docker-slim build \
           --target glua_dev_fat:latest \
+          --http-probe-off \
           --continue-after 30 \
           --show-clogs --show-blogs \
           --include-bin "/usr/bin/date" \
@@ -84,10 +93,14 @@ runs:
           --include-bin "/usr/bin/screen" \
           --include-path "/www" \
           --include-path "/home/steam/metadata" \
+          --include-bin "/home/steam/gmodserver/bin/libbass.so" \
+          --include-bin "/home/steam/gmodserver/bin/linux64/libbass.so" \
+          --include-bin "/home/steam/gmodserver/bin/gmod_audio.so" \
           --include-shell \
           --expose 8080 \
           --tag $BASE:$rawVersionTag \
           --tag $BASE:gamebuild-$id
+        echo "::notice::Docker slim took $((SECONDS - start))s"
 
         # Tag image with "0.27" if we push tag "0.27.5"
         # but not if we push tag "0.27-pre5"
@@ -109,20 +122,16 @@ runs:
         username: ${{ github.actor }}
         password: ${{ inputs.github_token }}
 
-    - name: Tag and push slim image
+    - name: Push to GitHub Container Registry
       shell: bash
       run: |
-        if [ "${{ inputs.gmod_branch }}" = "x86-64" ]; then
-          BASE=ghcr.io/cfc-servers/glua.dev/64bit
-        elif [ "${{ inputs.gmod_branch }}" = "dev" ]; then
-          BASE=ghcr.io/cfc-servers/glua.dev/dev
-        elif [ "${{ inputs.gmod_branch }}" = "prerelease" ]; then
-          BASE=ghcr.io/cfc-servers/glua.dev/prerelease
-        else
-          BASE=ghcr.io/cfc-servers/glua.dev
-        fi
+        start=$SECONDS
+        docker push "${{ steps.base.outputs.name }}" --all-tags
+        echo "::notice::GHCR push took $((SECONDS - start))s"
 
-        docker push "$BASE" --all-tags
+    - name: Logout from GHCR
+      shell: bash
+      run: docker logout ghcr.io
 
     - name: Push to Cloudflare Container Registry
       shell: bash
@@ -130,6 +139,7 @@ runs:
         CLOUDFLARE_API_TOKEN: ${{ inputs.cloudflare_token }}
         CLOUDFLARE_ACCOUNT_ID: ${{ inputs.cloudflare_account_id }}
       run: |
+        start=$SECONDS
         if [ "${{ inputs.gmod_branch }}" = "x86-64" ]; then
           docker tag "ghcr.io/cfc-servers/glua.dev/64bit:latest" "glua-dev-sixtyfour:cf"
           npx wrangler containers push "glua-dev-sixtyfour:cf"
@@ -146,6 +156,7 @@ runs:
           docker tag "ghcr.io/cfc-servers/glua.dev:latest" "glua-dev-public:cf"
           npx wrangler containers push "glua-dev-public:cf"
         fi
+        echo "::notice::Cloudflare push took $((SECONDS - start))s"
 
     - name: Deploy Worker to roll out new container image
       shell: bash
