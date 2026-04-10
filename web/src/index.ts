@@ -1,5 +1,14 @@
 import { DurableObject } from "cloudflare:workers";
 import { Container, getContainer } from "@cloudflare/containers";
+import {
+  notify,
+  extractRequestContext,
+  serializeContext,
+  parseContext,
+  OBS_CONTEXT_HEADER,
+  type CloseReason,
+  type RequestContext,
+} from "./observability";
 
 // --- Type Definitions ---
 interface WebSocketMessage {
@@ -14,6 +23,7 @@ export interface Env {
   GMOD_DEV: DurableObjectNamespace;
   QUEUE_DO: DurableObjectNamespace<QueueDO>;
   LOG_BUCKET: R2Bucket;
+  DISCORD_WEBHOOK_URL?: string;
 }
 
 // --- Session Time Limits ---
@@ -25,6 +35,8 @@ const ACTIVITY_PING_INTERVAL = 30 * 1000;     // 30 seconds
 
 // --- Container / Session Manager Base Class ---
 export class BaseSession extends Container<Env> {
+  protected branch: string = "public";
+
   sessionState: "NEW" | "PROVISIONING" | "ACTIVE" | "CLOSED";
   browserSockets: Set<WebSocket>;
   containerSocket: WebSocket | null;
@@ -36,6 +48,10 @@ export class BaseSession extends Container<Env> {
   sessionEndTime?: number;
   sessionDuration?: number;
   extensionGranted = false;
+
+  // In-memory only: on DO hibernation we lose geo/ISP fields in the end
+  // embed, which is cosmetic — never a correctness concern.
+  protected obsContext?: RequestContext;
 
   constructor(ctx: DurableObjectState, env: Env) {
     // Pass the container config to the super constructor.
@@ -74,6 +90,14 @@ export class BaseSession extends Container<Env> {
     // This is how we solve the race condition.
     if (url.pathname === "/ws/browser" && this.sessionState === "NEW") {
       this.sessionState = "PROVISIONING";
+
+      this.obsContext = parseContext(request.headers.get(OBS_CONTEXT_HEADER));
+      void notify.sessionStarted(this.env, {
+        sessionId,
+        branch: this.branch,
+        context: this.obsContext ?? { ip: "unknown" },
+      });
+
       // Start the container, but don't wait for it to finish.
       void this.startContainer(sessionId);
     }
@@ -95,8 +119,18 @@ export class BaseSession extends Container<Env> {
     (ws as any).accept();
 
     if (this.containerSocket || this.sessionState !== "PROVISIONING") {
-      console.warn(`Agent connection attempted in unexpected state: ${this.sessionState}. Already had containerSocket?: ${!!this.containerSocket}`);
+      const warnMsg = `Agent connection attempted in unexpected state: ${this.sessionState}. Already had containerSocket?: ${!!this.containerSocket}`;
+      console.warn(warnMsg);
       // TODO: Why is this firing inappropriately for non-public branches?
+      // Webhook is wired up to collect diagnostic data; drop it once
+      // the root cause is known.
+      void notify.error(this.env, {
+        where: "handleAgentConnection: unexpected state",
+        error: new Error(warnMsg),
+        sessionId: this.ctx.id.name,
+        branch: this.branch,
+        context: this.obsContext,
+      });
       // ws.close(1013, "Duplicate or unexpected agent connection.");
       // return;
     }
@@ -113,8 +147,8 @@ export class BaseSession extends Container<Env> {
     this.ctx.storage.setAlarm(Date.now() + ACTIVITY_PING_INTERVAL);
 
     ws.addEventListener("message", this.onAgentMessage);
-    ws.addEventListener("close", () => this.closeSession());
-    ws.addEventListener("error", () => this.closeSession());
+    ws.addEventListener("close", () => this.closeSession("agent_ws_close"));
+    ws.addEventListener("error", () => this.closeSession("agent_ws_error"));
   }
 
   handleBrowserWebSocket(ws: WebSocket, sessionId: string) {
@@ -181,8 +215,15 @@ export class BaseSession extends Container<Env> {
     } catch(e) {
       console.error("Container Start Error:", e);
       const errorMessage = `\u001b[31mFailed to start container: ${e instanceof Error ? e.message : String(e)}\u001b[0m`;
-        this.broadcastToBrowsers("LOGS", [errorMessage]);
-        await this.closeSession();
+      this.broadcastToBrowsers("LOGS", [errorMessage]);
+      void notify.error(this.env, {
+        where: "startContainer",
+        error: e,
+        sessionId,
+        branch: this.branch,
+        context: this.obsContext,
+      });
+      await this.closeSession("container_start_failed");
     }
   }
 
@@ -204,12 +245,19 @@ export class BaseSession extends Container<Env> {
       void this.startContainer(sessionId);
       return;
     }
-    await this.closeSession();
+    await this.closeSession("container_stopped");
   }
 
   override async onError(error: unknown): Promise<void> {
     console.error("Container Error:", error);
-    await this.closeSession();
+    void notify.error(this.env, {
+      where: "Container.onError",
+      error,
+      sessionId: this.ctx.id.name,
+      branch: this.branch,
+      context: this.obsContext,
+    });
+    await this.closeSession("container_error");
   }
 
   onAgentMessage = (msg: MessageEvent) => {
@@ -233,7 +281,7 @@ export class BaseSession extends Container<Env> {
           break;
         case "AGENT_SHUTDOWN":
            this.broadcastToBrowsers("LOGS", ["\u001b[31mAgent is shutting down...\u001b[0m"]);
-           this.closeSession();
+           void this.closeSession("agent_shutdown");
            break;
         default:
           console.warn(`Unknown message type from agent: ${message.type}`);
@@ -254,7 +302,7 @@ export class BaseSession extends Container<Env> {
       if (message.type === "CLOSE_SESSION") {
         if (this.sessionState === "ACTIVE") {
           console.log("Browser requested session close");
-          this.closeSession();
+          void this.closeSession("clean");
         }
         return;
       }
@@ -306,15 +354,16 @@ export class BaseSession extends Container<Env> {
     this.broadcastToBrowsers("SESSION_TIMER", this.sessionTimerPayload());
   }
 
-  async closeSession() {
+  async closeSession(reason: CloseReason) {
     const stack = new Error().stack;
-    console.trace("Closing session", this.sessionState);
+    console.trace("Closing session", this.sessionState, "reason:", reason);
     console.log(stack)
 
     if (this.sessionState === "CLOSED") return;
     this.sessionState = "CLOSED";
+    const endedAt = Date.now();
     if (this.sessionMetadata) {
-      this.sessionMetadata.endedAt = Date.now();
+      this.sessionMetadata.endedAt = endedAt;
     }
 
     if(this.containerSocket) {
@@ -334,6 +383,18 @@ export class BaseSession extends Container<Env> {
     catch(e) { console.error("Error stopping container:", e); }
 
     await this.notifyQueueManagerOfClosure();
+
+    void notify.sessionEnded(this.env, {
+      sessionId: this.ctx.id.name ?? "unknown",
+      branch: this.branch,
+      reason,
+      startedAt: this.sessionMetadata?.startedAt,
+      endedAt,
+      scriptCount: this.scriptCount,
+      logLineCount: this.logLineCount,
+      extensionGranted: this.extensionGranted,
+      context: this.obsContext,
+    });
   }
 
   async notifyQueueManagerOfClosure() {
@@ -357,7 +418,7 @@ export class BaseSession extends Container<Env> {
     if (this.sessionState === "ACTIVE") {
       if (this.sessionEndTime && Date.now() >= this.sessionEndTime) {
         console.log("[alarm] session time expired, closing");
-        await this.closeSession();
+        await this.closeSession("timer_expired");
         return;
       }
       this.renewActivityTimeout();
@@ -383,6 +444,13 @@ export class BaseSession extends Container<Env> {
     } catch (e) {
       console.error(`Failed to flush logs for DO ${this.ctx.id.name!}:`, e);
       this.logBuffer.unshift(...logsToFlush.trim().split("\n"));
+      void notify.error(this.env, {
+        where: "flushLogsToR2",
+        error: e,
+        sessionId: this.ctx.id.name,
+        branch: this.branch,
+        context: this.obsContext,
+      });
     }
   }
 
@@ -409,6 +477,13 @@ export class BaseSession extends Container<Env> {
       this.scriptBuffer = {};
     } catch (e) {
       console.error(`Failed to flush session data for DO ${this.ctx.id.name!}:`, e);
+      void notify.error(this.env, {
+        where: "flushSessionToR2",
+        error: e,
+        sessionId: this.ctx.id.name,
+        branch: this.branch,
+        context: this.obsContext,
+      });
     }
   }
 
@@ -430,10 +505,18 @@ export class BaseSession extends Container<Env> {
 }
 
 
-export class GmodPublic extends BaseSession {}
-export class GmodSixtyFour extends BaseSession {}
-export class GmodPrerelease extends BaseSession {}
-export class GmodDev extends BaseSession {}
+export class GmodPublic extends BaseSession {
+  protected override branch = "public";
+}
+export class GmodSixtyFour extends BaseSession {
+  protected override branch = "sixty-four";
+}
+export class GmodPrerelease extends BaseSession {
+  protected override branch = "prerelease";
+}
+export class GmodDev extends BaseSession {
+  protected override branch = "dev";
+}
 
 const MAX_SESSIONS_PER_IP = 2;
 
@@ -502,6 +585,13 @@ export class QueueDO extends DurableObject<Env> {
       const clientIP = rawIP !== "unknown" ? await hashIP(rawIP) : "unknown";
 
       if (clientIP !== "unknown" && this.activeSessionCountForIP(clientIP) >= MAX_SESSIONS_PER_IP) {
+        const obsContext = parseContext(request.headers.get(OBS_CONTEXT_HEADER));
+        void notify.warning(this.env, {
+          title: "IP rate limit hit",
+          description: `Tried to open a **${sessionType}** session past the per-IP limit of **${MAX_SESSIONS_PER_IP}**.`,
+          context: obsContext,
+        });
+
         return new Response(JSON.stringify({
           status: "IP_LIMIT",
           limit: MAX_SESSIONS_PER_IP,
@@ -638,9 +728,11 @@ export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
 
+    const forwarded = withObsHeader(request);
+
     if (url.pathname.startsWith("/api/")) {
       const queueDO = env.QUEUE_DO.get(env.QUEUE_DO.idFromName("global-queue"));
-      return queueDO.fetch(request);
+      return queueDO.fetch(forwarded);
     }
 
     if (url.pathname.startsWith("/ws/")) {
@@ -660,10 +752,26 @@ export default {
 
       const sessionDOId = sessionBinding.idFromName(sessionId);
       const stub = sessionBinding.get(sessionDOId);
-      return stub.fetch(request);
+      return stub.fetch(forwarded);
     }
 
     return new Response("Not Found", { status: 404 });
   },
 };
+
+// Runs on the real request path — must never throw. Worst case: we log
+// and forward the unmodified request (context just won't be attached).
+function withObsHeader(request: Request): Request {
+  try {
+    const obsContext = extractRequestContext(request);
+    const headers = new Headers(request.headers);
+    headers.set(OBS_CONTEXT_HEADER, serializeContext(obsContext));
+    return new Request(request, { headers });
+  } catch (e) {
+    const name = e instanceof Error ? e.name : typeof e;
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error(`[obs] withObsHeader failed, forwarding without context: ${name}: ${msg}`);
+    return request;
+  }
+}
 
