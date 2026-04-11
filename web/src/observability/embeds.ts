@@ -135,13 +135,13 @@ export function buildSessionStartedEmbed(e: SessionStartedEvent): DiscordEmbed {
   const ctx = e.context;
 
   const lines: string[] = [
+    code(truncate(e.sessionId, 100)),
     `### ${locationHeader(ctx)}`,
     sub(`started ${relativeTimestamp()}${ctx.colo ? ` · edge ${code(ctx.colo)}` : ""}`),
   ];
 
   const fields: DiscordEmbedField[] = [
-    { name: "Session", value: code(truncate(e.sessionId, 100)), inline: true },
-    { name: "Branch",  value: `${emoji} ${code(label)}`,         inline: true },
+    { name: "Branch", value: `${emoji} ${code(label)}`, inline: true },
     ...networkFields(ctx),
   ];
 
@@ -171,13 +171,13 @@ export function buildSessionEndedEmbed(e: SessionEndedEvent): DiscordEmbed {
   const durationMs = e.startedAt !== undefined ? e.endedAt - e.startedAt : undefined;
 
   const lines: string[] = [
+    code(truncate(e.sessionId, 100)),
     `### ${ctx ? locationHeader(ctx) : "🌐 Unknown location"}`,
     sub(`ended ${relativeTimestamp()}${durationMs !== undefined ? ` · ran for **${duration(durationMs)}**` : ""}`),
   ];
 
   const fields: DiscordEmbedField[] = [
-    { name: "Session", value: code(truncate(e.sessionId, 100)), inline: true },
-    { name: "Branch",  value: `${emoji} ${code(label)}`,         inline: true },
+    { name: "Branch", value: `${emoji} ${code(label)}`, inline: true },
   ];
   if (ctx) fields.push(...networkFields(ctx));
 
