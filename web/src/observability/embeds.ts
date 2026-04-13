@@ -27,6 +27,7 @@ interface DiscordEmbed {
 
 export interface DiscordWebhookPayload {
   embeds: DiscordEmbed[];
+  message_reference?: { message_id: string };
 }
 
 const COLORS = {

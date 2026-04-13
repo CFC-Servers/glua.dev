@@ -23,7 +23,10 @@ export const notify = {
   sessionStarted: (env: Env, event: SessionStartedEvent) =>
     post(env, { embeds: [buildSessionStartedEmbed(event)] }),
   sessionEnded: (env: Env, event: SessionEndedEvent) =>
-    post(env, { embeds: [buildSessionEndedEmbed(event)] }),
+    post(env, {
+      embeds: [buildSessionEndedEmbed(event)],
+      ...(event.replyTo ? { message_reference: { message_id: event.replyTo } } : {}),
+    }),
   queueEntered: (env: Env, event: QueueEnteredEvent) =>
     post(env, { embeds: [buildQueueEnteredEmbed(event)] }),
   error: (env: Env, event: ErrorEvent) =>
