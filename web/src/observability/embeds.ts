@@ -1,6 +1,8 @@
 import type {
+  CapacitySnapshot,
   CloseReason,
   ErrorEvent,
+  QueueEnteredEvent,
   RequestContext,
   SessionEndedEvent,
   SessionStartedEvent,
@@ -107,6 +109,9 @@ const networkFields = (ctx: RequestContext): DiscordEmbedField[] => [
   { name: "Network", value: ispLink(ctx),   inline: true },
 ];
 
+const capacityLine = (c: CapacitySnapshot, opts?: { skipQueue: boolean }): string =>
+  `${c.branch} ${c.branchUsed}/${c.branchMax} · total ${c.totalUsed}/${c.totalMax}${!opts?.skipQueue && c.queueDepth > 0 ? ` · queue ${c.queueDepth}` : ""}`;
+
 const contextSubtext = (ctx: RequestContext | undefined): string | undefined => {
   if (!ctx) return undefined;
 
@@ -139,6 +144,7 @@ export function buildSessionStartedEmbed(e: SessionStartedEvent): DiscordEmbed {
     `### ${locationHeader(ctx)}`,
     sub(`started ${relativeTimestamp()}${ctx.colo ? ` · edge ${code(ctx.colo)}` : ""}`),
   ];
+  if (e.capacity) lines.push(sub(capacityLine(e.capacity)));
 
   const fields: DiscordEmbedField[] = [
     { name: "Branch", value: `${emoji} ${code(label)}`, inline: true },
@@ -175,6 +181,7 @@ export function buildSessionEndedEmbed(e: SessionEndedEvent): DiscordEmbed {
     `### ${ctx ? locationHeader(ctx) : "🌐 Unknown location"}`,
     sub(`ended ${relativeTimestamp()}${durationMs !== undefined ? ` · ran for **${duration(durationMs)}**` : ""}`),
   ];
+  if (e.capacity) lines.push(sub(capacityLine(e.capacity)));
 
   const fields: DiscordEmbedField[] = [
     { name: "Branch", value: `${emoji} ${code(label)}`, inline: true },
@@ -232,6 +239,30 @@ export function buildErrorEmbed(e: ErrorEvent): DiscordEmbed {
     color: COLORS.error,
     timestamp: new Date().toISOString(),
     fields: fields.length > 0 ? fields : undefined,
+    footer: FOOTER,
+  };
+}
+
+export function buildQueueEnteredEmbed(e: QueueEnteredEvent): DiscordEmbed {
+  const { emoji, label } = branchMeta(e.sessionType);
+  const ctx = e.context;
+
+  const lines: string[] = [
+    `### ${locationHeader(ctx)}`,
+    sub(`position ${code("#" + e.position)} · ${capacityLine(e.capacity, { skipQueue: true })}`),
+  ];
+
+  const fields: DiscordEmbedField[] = [
+    { name: "Branch", value: `${emoji} ${code(label)}`, inline: true },
+    ...networkFields(ctx),
+  ];
+
+  return {
+    title: "⏳ Queue entered",
+    description: truncate(lines.join("\n"), LIMIT_DESCRIPTION),
+    color: COLORS.info,
+    timestamp: new Date().toISOString(),
+    fields,
     footer: FOOTER,
   };
 }

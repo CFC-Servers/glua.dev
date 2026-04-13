@@ -6,6 +6,7 @@ import {
   serializeContext,
   parseContext,
   OBS_CONTEXT_HEADER,
+  type CapacitySnapshot,
   type CloseReason,
   type RequestContext,
 } from "./observability";
@@ -53,6 +54,18 @@ export class BaseSession extends Container<Env> {
   // embed, which is cosmetic — never a correctness concern.
   protected obsContext?: RequestContext;
 
+  private async fetchCapacitySnapshot(): Promise<CapacitySnapshot | undefined> {
+    try {
+      const queueDO = this.env.QUEUE_DO.get(this.env.QUEUE_DO.idFromName("global-queue"));
+      const res = await queueDO.fetch(`http://do/internal/capacity?branch=${encodeURIComponent(this.branch)}`);
+      if (!res.ok) return undefined;
+      return await res.json<CapacitySnapshot>();
+    } catch (e) {
+      console.error("[obs] fetchCapacitySnapshot failed:", e);
+      return undefined;
+    }
+  }
+
   constructor(ctx: DurableObjectState, env: Env) {
     // Pass the container config to the super constructor.
     super(ctx, env, {
@@ -92,11 +105,15 @@ export class BaseSession extends Container<Env> {
       this.sessionState = "PROVISIONING";
 
       this.obsContext = parseContext(request.headers.get(OBS_CONTEXT_HEADER));
-      void notify.sessionStarted(this.env, {
-        sessionId,
-        branch: this.branch,
-        context: this.obsContext ?? { ip: "unknown" },
-      });
+      void (async () => {
+        const capacity = await this.fetchCapacitySnapshot();
+        await notify.sessionStarted(this.env, {
+          sessionId,
+          branch: this.branch,
+          context: this.obsContext ?? { ip: "unknown" },
+          capacity,
+        });
+      })();
 
       // Start the container, but don't wait for it to finish.
       void this.startContainer(sessionId);
@@ -384,17 +401,21 @@ export class BaseSession extends Container<Env> {
 
     await this.notifyQueueManagerOfClosure();
 
-    void notify.sessionEnded(this.env, {
-      sessionId: this.ctx.id.name ?? "unknown",
-      branch: this.branch,
-      reason,
-      startedAt: this.sessionMetadata?.startedAt,
-      endedAt,
-      scriptCount: this.scriptCount,
-      logLineCount: this.logLineCount,
-      extensionGranted: this.extensionGranted,
-      context: this.obsContext,
-    });
+    void (async () => {
+      const capacity = await this.fetchCapacitySnapshot();
+      await notify.sessionEnded(this.env, {
+        sessionId: this.ctx.id.name ?? "unknown",
+        branch: this.branch,
+        reason,
+        startedAt: this.sessionMetadata?.startedAt,
+        endedAt,
+        scriptCount: this.scriptCount,
+        logLineCount: this.logLineCount,
+        extensionGranted: this.extensionGranted,
+        context: this.obsContext,
+        capacity,
+      });
+    })();
   }
 
   async notifyQueueManagerOfClosure() {
@@ -576,8 +597,30 @@ export class QueueDO extends DurableObject<Env> {
     return this.activeCountForType(type) < max && this.activeSessions.size < this.maxTotalSessions;
   }
 
+  private snapshotFor(branch: string): CapacitySnapshot {
+    return {
+      branch,
+      branchUsed: this.activeCountForType(branch),
+      branchMax: this.maxPerType[branch] ?? 2,
+      totalUsed: this.activeSessions.size,
+      totalMax: this.maxTotalSessions,
+      queueDepth: this.waitingQueue.length,
+    };
+  }
+
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
+
+    // Internal-only: the worker entrypoint routes /api/* and /ws/* to DOs,
+    // so /internal/* paths are unreachable externally (404 at the worker)
+    // but work over DO stub-to-stub calls, which bypass the entrypoint.
+    if (url.pathname === "/internal/capacity") {
+      const branch = url.searchParams.get("branch");
+      if (!branch) return new Response("Missing branch", { status: 400 });
+      return new Response(JSON.stringify(this.snapshotFor(branch)), {
+        headers: { "Content-Type": "application/json" },
+      });
+    }
 
     if (url.pathname === "/api/request-session") {
       const sessionType = url.searchParams.get("type") || "public";
@@ -612,6 +655,16 @@ export class QueueDO extends DurableObject<Env> {
           this.resolvedTickets.set(ticketId, { sessionId, sessionType });
         }});
         const position = this.waitingQueue.filter(w => w.sessionType === sessionType).length;
+
+        const obsContext = parseContext(request.headers.get(OBS_CONTEXT_HEADER));
+        if (obsContext) {
+          void notify.queueEntered(this.env, {
+            sessionType,
+            position,
+            capacity: this.snapshotFor(sessionType),
+            context: obsContext,
+          });
+        }
 
         return new Response(JSON.stringify({
           status: "QUEUED",

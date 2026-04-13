@@ -19,10 +19,20 @@ export interface RequestContext {
   userAgent?: string;
 }
 
+export interface CapacitySnapshot {
+  branch: string;
+  branchUsed: number;
+  branchMax: number;
+  totalUsed: number;
+  totalMax: number;
+  queueDepth: number;
+}
+
 export interface SessionStartedEvent {
   sessionId: string;
   branch: string;
   context: RequestContext;
+  capacity?: CapacitySnapshot;
 }
 
 export interface SessionEndedEvent {
@@ -35,6 +45,14 @@ export interface SessionEndedEvent {
   logLineCount: number;
   extensionGranted: boolean;
   context?: RequestContext;
+  capacity?: CapacitySnapshot;
+}
+
+export interface QueueEnteredEvent {
+  sessionType: string;
+  position: number;
+  capacity: CapacitySnapshot;
+  context: RequestContext;
 }
 
 export interface ErrorEvent {
