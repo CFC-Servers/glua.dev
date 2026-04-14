@@ -55,6 +55,16 @@
             { "name": "GMOD_DEV", "class_name": "GmodDev" }
         ]
     },
-    
-
+    "migrations": [
+        {
+            "tag": "v1",
+            "new_sqlite_classes": [
+                "QueueDO",
+                "GmodPublic",
+                "GmodSixtyFour",
+                "GmodPrerelease",
+                "GmodDev"
+            ]
+        }
+    ]
 }
