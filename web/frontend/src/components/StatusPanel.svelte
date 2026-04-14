@@ -1,72 +1,24 @@
 <script lang="ts">
-    import { onMount } from "svelte";
-    import { sessionState, sessionMetadata, sessionTimer } from "./stores";
+    import { createEventDispatcher } from "svelte";
+    import { sessionState, sessionMetadata, sessionTimer } from "../lib/stores";
+    import { healthData } from "../lib/socket";
+    import { formatTime } from "../lib/format";
     import SessionMetadata from "./SessionMetadata.svelte";
     import TimeoutBar from "./TimeoutBar.svelte";
     import EndSessionButton from "./EndSessionButton.svelte";
-
-    import { createEventDispatcher } from "svelte";
 
     const dispatch = createEventDispatcher();
 
     export let socket: WebSocket | null;
 
     let collapsed = false;
-    let cpuUsage = 0;
-    let diskUsage = 0;
     let sessionDuration = "";
 
     $: if ($sessionState === "closed" || $sessionState === "readonly") {
         computeDuration();
     }
 
-    onMount(() => {
-        if (socket) {
-            socket.addEventListener("message", handleMessage);
-        }
-
-        return () => {
-            if (socket) {
-                socket.removeEventListener("message", handleMessage);
-            }
-        };
-    });
-
-    function handleMessage(event: MessageEvent) {
-        try {
-            const msg = JSON.parse(event.data);
-            switch (msg.type) {
-                case "HEALTH":
-                    updateStatusWidget(msg.payload);
-                    break;
-                case "SESSION_TIMER":
-                    sessionTimer.set(msg.payload);
-                    break;
-                case "CONTEXT_UPDATE":
-                    sessionMetadata.set(msg.payload);
-                    break;
-            }
-        } catch (e) {
-            console.error("Failed to process message in StatusPanel", e);
-        }
-    }
-
-    function updateStatusWidget(data: { cpuusage?: number; diskusage?: number }) {
-        if (data.cpuusage !== undefined) {
-            cpuUsage = data.cpuusage;
-        }
-        if (data.diskusage !== undefined) {
-            diskUsage = data.diskusage;
-        }
-    }
-
-    function formatTime(ms: number) {
-        if (ms < 0) ms = 0;
-        const totalSeconds = Math.floor(ms / 1000);
-        const minutes = Math.floor(totalSeconds / 60);
-        const seconds = totalSeconds % 60;
-        return `${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`;
-    }
+    $: inactive = $sessionState === "closed" || $sessionState === "readonly";
 
     function computeDuration() {
         const meta = $sessionMetadata;
@@ -74,9 +26,6 @@
         const end = meta.endedAt ?? Date.now();
         sessionDuration = formatTime(end - meta.startedAt);
     }
-
-    $: inactive = $sessionState === "closed" || $sessionState === "readonly";
-
 </script>
 
 <div id="status-panel" class="absolute top-4 right-4 z-20 w-72" class:collapsed>
@@ -102,12 +51,12 @@
             {:else}
                 <div class="px-4 pb-4 space-y-4">
                     <div>
-                        <div class="flex justify-between items-baseline mb-1"><span class="text-xs font-semibold text-gray-300">CPU Usage</span><span class="text-xs font-mono text-indigo-300">{cpuUsage.toFixed(1)}%</span></div>
-                        <div class="w-full bg-gray-700 rounded-full h-1.5"><div class="bg-indigo-500 h-1.5 rounded-full transition-all duration-500" style="width: {cpuUsage}%"></div></div>
+                        <div class="flex justify-between items-baseline mb-1"><span class="text-xs font-semibold text-gray-300">CPU Usage</span><span class="text-xs font-mono text-indigo-300">{$healthData.cpuUsage.toFixed(1)}%</span></div>
+                        <div class="w-full bg-gray-700 rounded-full h-1.5"><div class="bg-indigo-500 h-1.5 rounded-full transition-all duration-500" style="width: {$healthData.cpuUsage}%"></div></div>
                     </div>
                     <div>
-                        <div class="flex justify-between items-baseline mb-1"><span class="text-xs font-semibold text-gray-300">Disk Usage</span><span class="text-xs font-mono text-cyan-300">{diskUsage.toFixed(1)}%</span></div>
-                        <div class="w-full bg-gray-700 rounded-full h-1.5"><div class="bg-cyan-500 h-1.5 rounded-full transition-all duration-500" style="width: {diskUsage}%"></div></div>
+                        <div class="flex justify-between items-baseline mb-1"><span class="text-xs font-semibold text-gray-300">Disk Usage</span><span class="text-xs font-mono text-cyan-300">{$healthData.diskUsage.toFixed(1)}%</span></div>
+                        <div class="w-full bg-gray-700 rounded-full h-1.5"><div class="bg-cyan-500 h-1.5 rounded-full transition-all duration-500" style="width: {$healthData.diskUsage}%"></div></div>
                     </div>
                     <TimeoutBar {socket} />
                     <div class="border-t border-gray-700 pt-3">

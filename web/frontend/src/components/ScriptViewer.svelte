@@ -1,19 +1,11 @@
 <script lang="ts">
     import CodeMirror from "svelte-codemirror-editor";
-    import { EditorView } from "@codemirror/view";
     import { EditorState } from "@codemirror/state";
     import { StreamLanguage } from "@codemirror/language";
-    import { lua } from "./lua-mode.js";
+    import { lua } from "../lib/lua-mode";
     import { oneDark } from "@codemirror/theme-one-dark";
-    import { viewingScript } from "./stores";
-
-    const customTheme = EditorView.theme({
-        "&": { color: "#d1d5db", backgroundColor: "#1F2937" },
-        ".cm-content": { caretColor: "#60a5fa" },
-        "&.cm-focused .cm-cursor": { borderLeftColor: "#60a5fa" },
-        "&.cm-focused .cm-selectionBackground, ::selection": { backgroundColor: "#3b82f680" },
-        ".cm-gutters": { backgroundColor: "#1F2937", color: "#6b7280", border: "none" },
-    }, {dark: true});
+    import { gluaTheme } from "../lib/editor-theme";
+    import { viewingScript } from "../lib/stores";
 
     function close() {
         viewingScript.set(null);
@@ -50,7 +42,7 @@
                     value={$viewingScript.content}
                     lang={StreamLanguage.define(lua)}
                     theme={oneDark}
-                    extensions={[customTheme, EditorState.readOnly.of(true)]}
+                    extensions={[gluaTheme, EditorState.readOnly.of(true)]}
                 />
             </div>
         </div>

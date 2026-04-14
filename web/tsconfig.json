@@ -2,11 +2,16 @@
   "compilerOptions": {
     "target": "esnext",
     "module": "esnext",
-    "moduleResolution": "nodenext",
+    "moduleResolution": "bundler",
     "lib": ["esnext"],
     "strict": true,
     "types": [
       "@cloudflare/workers-types"
-    ]
-  }
+    ],
+    "paths": {
+      "@glua/shared": ["./shared"],
+      "@glua/shared/*": ["./shared/*"]
+    }
+  },
+  "include": ["src/**/*.ts", "shared/**/*.ts"]
 }

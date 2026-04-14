@@ -1,0 +1,48 @@
+name: Web CI
+
+on:
+  pull_request:
+    paths:
+      - "web/**"
+      - ".github/workflows/web-ci.yml"
+  push:
+    branches: [main]
+    paths:
+      - "web/**"
+      - ".github/workflows/web-ci.yml"
+
+defaults:
+  run:
+    working-directory: web
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: web/.nvmrc
+          cache: npm
+          cache-dependency-path: |
+            web/package-lock.json
+            web/frontend/package-lock.json
+
+      - name: Install worker deps
+        run: npm ci
+
+      - name: Install frontend deps
+        run: npm ci --prefix frontend
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck frontend
+        run: npm run check --prefix frontend
+
+      - name: Build frontend
+        run: npm run build --prefix frontend
+
+      - name: Build worker (dry-run)
+        run: npx wrangler deploy --dry-run

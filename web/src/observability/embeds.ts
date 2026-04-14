@@ -30,18 +30,18 @@ export interface DiscordWebhookPayload {
 }
 
 const COLORS = {
-  sessionStart: 0x10B981, // emerald-500
-  sessionEnd:   0x6366F1, // indigo-500
-  warning:      0xF59E0B, // amber-500
-  error:        0xEF4444, // red-500
-  info:         0x06B6D4, // cyan-500
+  sessionStart: 0x10b981, // emerald-500
+  sessionEnd: 0x6366f1, // indigo-500
+  warning: 0xf59e0b, // amber-500
+  error: 0xef4444, // red-500
+  info: 0x06b6d4, // cyan-500
 } as const;
 
 const BRANCH_META: Record<string, { emoji: string; label: string }> = {
-  "public":     { emoji: "🔵", label: "public"     },
+  public: { emoji: "🔵", label: "public" },
   "sixty-four": { emoji: "🟣", label: "sixty-four" },
-  "prerelease": { emoji: "🟡", label: "prerelease" },
-  "dev":        { emoji: "🔴", label: "dev"        },
+  prerelease: { emoji: "🟡", label: "prerelease" },
+  dev: { emoji: "🔴", label: "dev" },
 };
 
 const FOOTER = { text: "glua.dev · observability" } as const;
@@ -53,15 +53,13 @@ const LIMIT_STACK = 900;
 
 const relativeTimestamp = (): string => `<t:${Math.floor(Date.now() / 1000)}:R>`;
 
-const flag = (cc: string | undefined): string =>
-  cc ? `:flag_${cc.toLowerCase()}:` : "🌐";
+const flag = (cc: string | undefined): string => (cc ? `:flag_${cc.toLowerCase()}:` : "🌐");
 
 const code = (s: string): string => `\`${s}\``;
 const link = (text: string, url: string): string => `[${text}](${url})`;
 const sub = (s: string): string => `-# ${s}`;
 
-const truncate = (s: string, n: number): string =>
-  s.length > n ? s.slice(0, n - 1) + "…" : s;
+const truncate = (s: string, n: number): string => (s.length > n ? s.slice(0, n - 1) + "…" : s);
 
 const ipLink = (ip: string): string => link(`\`${ip}\``, `https://ipinfo.io/${ip}`);
 
@@ -76,8 +74,7 @@ const ispLink = (ctx: RequestContext): string => {
   return "unknown network";
 };
 
-const ansi = (ansiCode: string, text: string): string =>
-  "```ansi\n\u001b[" + ansiCode + "m" + text + "\u001b[0m\n```";
+const ansi = (ansiCode: string, text: string): string => "```ansi\n\u001b[" + ansiCode + "m" + text + "\u001b[0m\n```";
 
 const duration = (ms: number): string => {
   const totalSec = Math.floor(ms / 1000);
@@ -101,12 +98,11 @@ const locationHeader = (ctx: RequestContext): string => {
   return `${flag(ctx.country)} ${place}`;
 };
 
-const sessionHistoryUrl = (sessionId: string): string =>
-  `https://glua.dev/?session=${encodeURIComponent(sessionId)}`;
+const sessionHistoryUrl = (sessionId: string): string => `https://glua.dev/?session=${encodeURIComponent(sessionId)}`;
 
 const networkFields = (ctx: RequestContext): DiscordEmbedField[] => [
-  { name: "IP",      value: ipLink(ctx.ip), inline: true },
-  { name: "Network", value: ispLink(ctx),   inline: true },
+  { name: "IP", value: ipLink(ctx.ip), inline: true },
+  { name: "Network", value: ispLink(ctx), inline: true },
 ];
 
 const capacityLine = (c: CapacitySnapshot, opts?: { skipQueue: boolean }): string =>
@@ -115,9 +111,9 @@ const capacityLine = (c: CapacitySnapshot, opts?: { skipQueue: boolean }): strin
 const contextSubtext = (ctx: RequestContext | undefined): string | undefined => {
   if (!ctx) return undefined;
 
-  const locationName = ctx.city ?? ctx.country ?? "unknown"
-  const location = `${flag(ctx.country)} ${locationName}`
-  const ipInfo = `${ipLink(ctx.ip)} · ${ispLink(ctx)}`
+  const locationName = ctx.city ?? ctx.country ?? "unknown";
+  const location = `${flag(ctx.country)} ${locationName}`;
+  const ipInfo = `${ipLink(ctx.ip)} · ${ispLink(ctx)}`;
 
   return sub(`${location} · ${ipInfo}`);
 };
@@ -125,14 +121,14 @@ const contextSubtext = (ctx: RequestContext | undefined): string | undefined => 
 // Record<CloseReason, ...> is the exhaustiveness guard: adding a new
 // CloseReason without a matching key here is a compile error.
 const CLOSE_REASON_DISPLAY: Record<CloseReason, { label: string; icon: string; ansiCode: string; color: number }> = {
-  clean:                  { label: "clean close",               icon: "●", ansiCode: "2;32", color: COLORS.sessionEnd },
-  timer_expired:          { label: "timer expired",             icon: "⌛", ansiCode: "2;33", color: COLORS.warning    },
-  agent_shutdown:         { label: "agent shutdown",            icon: "⏻", ansiCode: "2;36", color: COLORS.info       },
-  container_stopped:      { label: "container stopped",         icon: "⏹", ansiCode: "2;31", color: COLORS.error      },
-  container_error:        { label: "container error",           icon: "✖", ansiCode: "2;31", color: COLORS.error      },
-  container_start_failed: { label: "container failed to start", icon: "✖", ansiCode: "2;31", color: COLORS.error      },
-  agent_ws_close:         { label: "agent ws closed",           icon: "⚠", ansiCode: "2;33", color: COLORS.warning    },
-  agent_ws_error:         { label: "agent ws errored",          icon: "⚠", ansiCode: "2;33", color: COLORS.warning    },
+  clean: { label: "clean close", icon: "●", ansiCode: "2;32", color: COLORS.sessionEnd },
+  timer_expired: { label: "timer expired", icon: "⌛", ansiCode: "2;33", color: COLORS.warning },
+  agent_shutdown: { label: "agent shutdown", icon: "⏻", ansiCode: "2;36", color: COLORS.info },
+  container_stopped: { label: "container stopped", icon: "⏹", ansiCode: "2;31", color: COLORS.error },
+  container_error: { label: "container error", icon: "✖", ansiCode: "2;31", color: COLORS.error },
+  container_start_failed: { label: "container failed to start", icon: "✖", ansiCode: "2;31", color: COLORS.error },
+  agent_ws_close: { label: "agent ws closed", icon: "⚠", ansiCode: "2;33", color: COLORS.warning },
+  agent_ws_error: { label: "agent ws errored", icon: "⚠", ansiCode: "2;33", color: COLORS.warning },
 };
 
 export function buildSessionStartedEmbed(e: SessionStartedEvent): DiscordEmbed {
@@ -183,16 +179,14 @@ export function buildSessionEndedEmbed(e: SessionEndedEvent): DiscordEmbed {
   ];
   if (e.capacity) lines.push(sub(capacityLine(e.capacity)));
 
-  const fields: DiscordEmbedField[] = [
-    { name: "Branch", value: `${emoji} ${code(label)}`, inline: true },
-  ];
+  const fields: DiscordEmbedField[] = [{ name: "Branch", value: `${emoji} ${code(label)}`, inline: true }];
   if (ctx) fields.push(...networkFields(ctx));
 
   fields.push(
     { name: "Close reason", value: ansi(reason.ansiCode, `${reason.icon} ${reason.label}`), inline: false },
-    { name: "Scripts",   value: code(String(e.scriptCount)),  inline: true },
+    { name: "Scripts", value: code(String(e.scriptCount)), inline: true },
     { name: "Log lines", value: code(String(e.logLineCount)), inline: true },
-    { name: "Extended",  value: e.extensionGranted ? "✅" : "❌", inline: true },
+    { name: "Extended", value: e.extensionGranted ? "✅" : "❌", inline: true },
   );
 
   return {
@@ -208,14 +202,11 @@ export function buildSessionEndedEmbed(e: SessionEndedEvent): DiscordEmbed {
 
 export function buildErrorEmbed(e: ErrorEvent): DiscordEmbed {
   const err = e.error;
-  const rawMsg = err instanceof Error ? (err.message || err.name || "Error") : String(err);
+  const rawMsg = err instanceof Error ? err.message || err.name || "Error" : String(err);
   const msg = truncate(rawMsg, LIMIT_ERROR_MESSAGE);
   const stack = err instanceof Error ? err.stack : undefined;
 
-  const lines: string[] = [
-    `### ✖ ${truncate(e.where, 120)}`,
-    ansi("2;31", msg),
-  ];
+  const lines: string[] = [`### ✖ ${truncate(e.where, 120)}`, ansi("2;31", msg)];
 
   if (stack) {
     lines.push("```ts\n" + truncate(stack, LIMIT_STACK) + "\n```");
@@ -268,10 +259,7 @@ export function buildQueueEnteredEmbed(e: QueueEnteredEvent): DiscordEmbed {
 }
 
 export function buildWarningEmbed(e: WarningEvent): DiscordEmbed {
-  const lines: string[] = [
-    `## ⚠️ ${truncate(e.title, 120)}`,
-    truncate(e.description, LIMIT_DESCRIPTION - 200),
-  ];
+  const lines: string[] = [`## ⚠️ ${truncate(e.title, 120)}`, truncate(e.description, LIMIT_DESCRIPTION - 200)];
   const ctxSub = contextSubtext(e.context);
   if (ctxSub) lines.push(ctxSub);
 

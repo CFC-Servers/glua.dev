@@ -1,13 +1,13 @@
 <script lang="ts">
   import { onMount, afterUpdate } from "svelte";
-  import Modal from "./lib/Modal.svelte";
-  import IPLimited from "./lib/IPLimited.svelte";
-  import Console from "./lib/Console.svelte";
-  import Editor from "./lib/Editor.svelte";
-  import ScriptViewer from "./lib/ScriptViewer.svelte";
+  import Modal from "./components/Modal.svelte";
+  import IPLimited from "./components/IPLimited.svelte";
+  import Console from "./components/Console.svelte";
+  import Editor from "./components/Editor.svelte";
+  import ScriptViewer from "./components/ScriptViewer.svelte";
   import { isEditorOpen, sessionState, scriptMap, sessionMetadata } from "./lib/stores";
 
-  let session = { id: null };
+  let sessionId: string | null = null;
   let socket: WebSocket | null = null;
   let view: "modal" | "loading" | "not-found" | "console" | "ip-limited" = "modal";
   let ipLimit = 2;
@@ -16,63 +16,63 @@
   let consolePanel: HTMLElement;
   let resizing = false;
 
-  const EDITOR_WIDTH_KEY = 'glua-editor-width';
-  const EDITOR_OPEN_KEY = 'glua-editor-open';
+  const EDITOR_WIDTH_KEY = "glua-editor-width";
+  const EDITOR_OPEN_KEY = "glua-editor-open";
 
   function updatePanelWidths() {
     if (consolePanel && !resizing) {
       if ($isEditorOpen) {
-        const savedWidth = localStorage.getItem(EDITOR_WIDTH_KEY) || '33%';
+        const savedWidth = localStorage.getItem(EDITOR_WIDTH_KEY) || "33%";
         const consoleWidth = `calc(100% - ${savedWidth})`;
         consolePanel.style.width = consoleWidth;
-        if(editorPanel) editorPanel.style.width = savedWidth;
+        if (editorPanel) editorPanel.style.width = savedWidth;
       } else {
-        consolePanel.style.width = '100%';
+        consolePanel.style.width = "100%";
       }
     }
   }
 
   onMount(() => {
     const params = new URLSearchParams(window.location.search);
-    const sessionId = params.get("session");
-    if (sessionId) {
+    const urlSessionId = params.get("session");
+    if (urlSessionId) {
       view = "loading";
-      loadSession(sessionId);
+      loadSession(urlSessionId);
     }
 
     const editorOpen = localStorage.getItem(EDITOR_OPEN_KEY);
     isEditorOpen.set(editorOpen ? JSON.parse(editorOpen) : false);
 
     const handleKeydown = (e: KeyboardEvent) => {
-        if (e.key === '.' && (e.metaKey || e.ctrlKey)) {
-            e.preventDefault();
-            isEditorOpen.update(open => !open);
-        }
+      if (e.key === "." && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault();
+        isEditorOpen.update((open) => !open);
+      }
     };
-    window.addEventListener('keydown', handleKeydown);
-    return () => window.removeEventListener('keydown', handleKeydown);
+    window.addEventListener("keydown", handleKeydown);
+    return () => window.removeEventListener("keydown", handleKeydown);
   });
 
   afterUpdate(() => {
     updatePanelWidths();
   });
 
-  isEditorOpen.subscribe(open => {
+  isEditorOpen.subscribe((open) => {
     localStorage.setItem(EDITOR_OPEN_KEY, JSON.stringify(open));
   });
 
-  async function loadSession(sessionId: string) {
+  async function loadSession(id: string) {
     try {
-      const res = await fetch(`/api/session-status?session=${sessionId}`);
+      const res = await fetch(`/api/session-status?session=${id}`);
       const data = await res.json();
 
       if (data.status === "active") {
-        connectWebSocket(sessionId, data.sessionType);
+        connectWebSocket(id, data.sessionType);
         return;
       }
 
       if (data.status === "ended") {
-        session.id = sessionId;
+        sessionId = id;
         readonlyLogs = data.logs;
         if (data.scripts) {
           scriptMap.set(data.scripts);
@@ -90,14 +90,14 @@
     view = "not-found";
   }
 
-  function connectWebSocket(sessionId: string, sessionType: string) {
-    session.id = sessionId;
-    const url = new URL(window.location);
-    url.searchParams.set("session", sessionId);
+  function connectWebSocket(id: string, sessionType: string) {
+    sessionId = id;
+    const url = new URL(window.location.href);
+    url.searchParams.set("session", id);
     window.history.pushState({}, "", url);
     view = "console";
     const wsScheme = window.location.protocol === "https:" ? "wss://" : "ws://";
-    const wsUrl = `${wsScheme}${window.location.host}/ws/browser?session=${sessionId}&type=${sessionType}`;
+    const wsUrl = `${wsScheme}${window.location.host}/ws/browser?session=${id}&type=${sessionType}`;
     socket = new WebSocket(wsUrl);
   }
 
@@ -107,7 +107,6 @@
 
     const handleMouseMove = (e: MouseEvent) => {
       const editorWidth = window.innerWidth - e.clientX;
-
       if (editorWidth > 200 && editorWidth < window.innerWidth - 200) {
         if (editorPanel) editorPanel.style.width = `${editorWidth}px`;
         if (consolePanel) consolePanel.style.width = `${e.clientX}px`;
@@ -119,13 +118,13 @@
       if (editorPanel) {
         localStorage.setItem(EDITOR_WIDTH_KEY, editorPanel.style.width);
       }
-      window.removeEventListener('mousemove', handleMouseMove);
-      window.removeEventListener('mouseup', handleMouseUp);
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", handleMouseUp);
       updatePanelWidths();
     };
 
-    window.addEventListener('mousemove', handleMouseMove);
-    window.addEventListener('mouseup', handleMouseUp);
+    window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("mouseup", handleMouseUp);
   }
 </script>
 
@@ -173,6 +172,3 @@
     {/if}
   {/if}
 </main>
-
-
-

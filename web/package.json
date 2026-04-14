@@ -2,30 +2,27 @@
 	"name": "glua-dev",
 	"version": "0.0.0",
 	"private": true,
+	"engines": {
+		"node": ">=22"
+	},
 	"scripts": {
 		"deploy": "wrangler deploy",
 		"dev": "wrangler dev",
 		"start": "wrangler dev",
+		"dev:frontend": "npm run dev --prefix frontend",
 		"build": "npm run build --prefix frontend",
-		"build:deploy": "npm run build --prefix frontend && npm run deploy"
+		"build:deploy": "npm run build && npm run deploy",
+		"lint": "biome check src/ shared/",
+		"lint:fix": "biome check --write src/ shared/",
+		"typecheck": "tsc --noEmit",
+		"check": "npm run lint && npm run typecheck && npm run check --prefix frontend"
 	},
 	"devDependencies": {
+		"@biomejs/biome": "^2.4.11",
 		"@cloudflare/workers-types": "^4.20250620.0",
-		"@sveltejs/vite-plugin-svelte": "^6.2.1",
-		"@tailwindcss/vite": "^4.1.11",
-		"@tsconfig/svelte": "^5.0.5",
-		"autoprefixer": "^10.4.21",
-		"postcss": "^8.5.6",
-		"tailwindcss": "^4.1.11",
 		"wrangler": "^4.80.0"
 	},
 	"dependencies": {
-		"@cloudflare/containers": "^0.0.13",
-		"@codemirror/commands": "^6.8.1",
-		"@codemirror/language": "^6.11.2",
-		"@codemirror/state": "^6.5.2",
-		"@codemirror/theme-one-dark": "^6.1.3",
-		"@codemirror/view": "^6.38.0",
-		"svelte-codemirror-editor": "^1.4.1"
+		"@cloudflare/containers": "^0.0.13"
 	}
 }

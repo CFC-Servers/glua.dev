@@ -1,9 +1,10 @@
 <script lang="ts">
-    import { sessionMetadata, sessionState } from "./stores";
+    import { sessionMetadata, sessionState } from "../lib/stores";
     import MetadataRow from "./MetadataRow.svelte";
 
     declare const __COMMIT_SHA__: string;
     const commitSha = __COMMIT_SHA__;
+    const commitHref = commitSha === "dev" ? undefined : `https://github.com/CFC-Servers/glua.dev/tree/${commitSha}`;
 
     $: showWebVersion = $sessionState !== "closed" && $sessionState !== "readonly";
 </script>
@@ -15,7 +16,7 @@
         <MetadataRow label="Game Ver" value={$sessionMetadata.gameVersion} href="https://steamdb.info/patchnotes/{$sessionMetadata.gameVersion}" />
         <MetadataRow label="Container" value={$sessionMetadata.containerTag} />
         {#if showWebVersion}
-            <MetadataRow label="Web Ver" value={commitSha} href="https://github.com/CFC-Servers/glua.dev/tree/{commitSha}" />
+            <MetadataRow label="Web Ver" value={commitSha} href={commitHref} />
         {/if}
     </div>
 {/if}
