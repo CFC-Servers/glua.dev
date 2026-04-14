@@ -14,9 +14,9 @@
         <MetadataRow label="Started" value={new Date($sessionMetadata.startedAt).toLocaleString()} />
         <MetadataRow label="Branch" value={$sessionMetadata.branch} href="https://steamdb.info/app/4000/depots/?branch={$sessionMetadata.branch}" />
         <MetadataRow label="Game Ver" value={$sessionMetadata.gameVersion} href="https://steamdb.info/patchnotes/{$sessionMetadata.gameVersion}" />
-        <MetadataRow label="Container" value={$sessionMetadata.containerTag} />
         {#if showWebVersion}
             <MetadataRow label="Web Ver" value={commitSha} href={commitHref} />
         {/if}
+        <MetadataRow label="Container" value={$sessionMetadata.containerTag} />
     </div>
 {/if}
