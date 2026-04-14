@@ -2,6 +2,7 @@
     import { onMount } from "svelte";
     import { get } from "svelte/store";
     import { mount, tick } from "svelte";
+    import AnsiUp from "ansi_up";
     import { sessionState, scriptMap, viewingScript } from "./stores";
     import StatusPanel from "./StatusPanel.svelte";
     import SessionEndedCard from "./SessionEndedCard.svelte";
@@ -26,18 +27,20 @@
     let commandHistory: string[] = JSON.parse(localStorage.getItem(HISTORY_KEY) || "[]");
     let historyIndex = -1;
 
-    $: inactive = $sessionState === 'closed' || $sessionState === 'readonly';
+    $: inactive = $sessionState === "closed" || $sessionState === "readonly";
 
     let cleanClose = false;
+    let reconnectAttempts = 0;
+    const MAX_RECONNECT_ATTEMPTS = 5;
 
     class VirtualConsole {
         private container: HTMLDivElement;
-        private ansiUp: any;
+        private ansiUp: AnsiUp;
         private isAtBottom = true;
 
         constructor(container: HTMLDivElement) {
             this.container = container;
-            this.ansiUp = new (window as any).AnsiUp();
+            this.ansiUp = new AnsiUp();
             this.ansiUp.use_classes = true;
             this.container.addEventListener("scroll", () => {
                 const threshold = 5;
@@ -134,8 +137,13 @@
         if (!socket) return;
 
         socket.onopen = () => {
-            virtualConsole.addLines(["\u001b[32mConnection established. Waiting for session...\u001b[0m"]);
-            sessionState.set("provisioning");
+            if (reconnectAttempts > 0) {
+                virtualConsole.addLines(["\u001b[32mReconnected.\u001b[0m"]);
+                reconnectAttempts = 0;
+            } else {
+                virtualConsole.addLines(["\u001b[32mConnection established. Waiting for session...\u001b[0m"]);
+                sessionState.set("provisioning");
+            }
             commandInput.disabled = false;
             commandInput.focus();
         };
@@ -181,18 +189,34 @@
         socket.onclose = () => {
             if (cleanClose) {
                 virtualConsole.addLines(["\u001b[90mConnection closed.\u001b[0m"]);
+                commandInput.disabled = true;
+                return;
+            }
+
+            if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+                reconnectAttempts++;
+                const delay = Math.min(1000 * Math.pow(2, reconnectAttempts - 1), 10000);
+                virtualConsole.addLines([`\u001b[33mConnection lost. Reconnecting in ${Math.round(delay / 1000)}s... (attempt ${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})\u001b[0m`]);
+                setTimeout(() => attemptReconnect(), delay);
             } else {
-                virtualConsole.addLines(["\u001b[31mConnection lost unexpectedly. \u001b[90m(Sorry! This can happen when we deploy a new version of glua.dev)\u001b[0m"]);
+                virtualConsole.addLines(["\u001b[31mConnection lost. Could not reconnect.\u001b[0m"]);
                 sessionState.set("closed");
+                commandInput.disabled = true;
                 appendEndedCard(outputContainer);
             }
-            commandInput.disabled = true;
         };
 
         socket.onerror = (err) => {
             console.error("WebSocket Error:", err);
             virtualConsole.addLines(["\u001b[31mWebSocket connection error.\u001b[0m"]);
         };
+    }
+
+    function attemptReconnect() {
+        if (!socket || cleanClose) return;
+        const wsUrl = socket.url;
+        socket = new WebSocket(wsUrl);
+        setupWebSocketHandlers();
     }
 
     function endSession() {

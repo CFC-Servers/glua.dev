@@ -12,7 +12,7 @@
         queuePosition = "Connecting...";
         
         try {
-            const response = await fetch(`/api/request-session?type=${containerType}`);
+            const response = await fetch(`/api/request-session?type=${containerType}`, { method: "POST" });
             const data = await response.json();
 
             if (data.status === "READY") {
@@ -31,27 +31,39 @@
         }
     }
 
+    let queueError = "";
+
     function pollQueueStatus(ticketId: string) {
+        let failures = 0;
+        const MAX_FAILURES = 10;
+
         const poll = async () => {
             try {
                 const response = await fetch(`/api/queue-status?ticketId=${ticketId}`);
                 const data = await response.json();
-                
-                if(data.error) {
-                    console.error("Queue error:", data.error);
+
+                if (data.error) {
                     inQueue = false;
+                    queueError = "Your queue ticket was lost. Please try again.";
                     return;
                 }
 
                 if (data.status === "READY") {
                     dispatch("startsession", { sessionId: data.sessionId, sessionType: containerType });
                 } else {
+                    failures = 0;
                     queuePosition = data.position;
-                    setTimeout(poll, 2000);
+                    setTimeout(poll, 3000);
                 }
             } catch (e) {
-                console.error("Queue poll failed:", e);
-                setTimeout(poll, 5000);
+                failures++;
+                if (failures >= MAX_FAILURES) {
+                    inQueue = false;
+                    queueError = "Lost connection to the queue. Please try again.";
+                    return;
+                }
+                const backoff = Math.min(3000 * Math.pow(1.5, failures), 15000);
+                setTimeout(poll, backoff);
             }
         };
         setTimeout(poll, 2000);
@@ -73,7 +85,10 @@
                         <option value="dev">Dev</option>
                     </select>
                 </div>
-                <button on:click={requestSession} class="bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-3 px-8 rounded-lg transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-indigo-400 disabled:bg-gray-500 disabled:cursor-wait">Start</button>
+                {#if queueError}
+                    <p class="text-red-400 text-sm mb-4">{queueError}</p>
+                {/if}
+                <button on:click={() => { queueError = ""; requestSession(); }} class="bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-3 px-8 rounded-lg transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-indigo-400 disabled:bg-gray-500 disabled:cursor-wait">Start</button>
             </div>
         {:else}
             <div>

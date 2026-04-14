@@ -12,10 +12,16 @@ import {
 } from "./observability";
 
 // --- Type Definitions ---
-interface WebSocketMessage {
-  type: string;
-  payload?: any;
+interface SessionMetadata {
+  branch: string;
+  gameVersion: string;
+  containerTag: string;
+  startedAt: number;
+  endedAt?: number;
 }
+
+const VALID_SESSION_TYPES = ["public", "sixty-four", "prerelease", "dev"] as const;
+type SessionType = (typeof VALID_SESSION_TYPES)[number];
 
 export interface Env {
   GMOD_PUBLIC: DurableObjectNamespace;
@@ -45,7 +51,7 @@ export class BaseSession extends Container<Env> {
   logLineCount: number;
   scriptBuffer: Record<string, { content: string; logLine: number }>;
   scriptCount: number;
-  sessionMetadata: { branch: string; gameVersion: string; containerTag: string; startedAt: number; endedAt?: number } | null;
+  sessionMetadata: SessionMetadata | null;
   sessionEndTime?: number;
   sessionDuration?: number;
   extensionGranted = false;
@@ -133,7 +139,7 @@ export class BaseSession extends Container<Env> {
   }
 
   handleAgentConnection(ws: WebSocket) {
-    (ws as any).accept();
+    ws.accept();
 
     if (this.containerSocket || this.sessionState !== "PROVISIONING") {
       const warnMsg = `Agent connection attempted in unexpected state: ${this.sessionState}. Already had containerSocket?: ${!!this.containerSocket}`;
@@ -169,7 +175,7 @@ export class BaseSession extends Container<Env> {
   }
 
   handleBrowserWebSocket(ws: WebSocket, sessionId: string) {
-    (ws as any).accept();
+    ws.accept();
     this.browserSockets.add(ws);
 
     if (this.sessionState === "ACTIVE" && this.sessionEndTime) {
@@ -226,7 +232,7 @@ export class BaseSession extends Container<Env> {
       await this.start({
         envVars: {
           SESSION_ID: sessionId,
-          WORKER_URL: "https://beta.glua.dev",
+          WORKER_URL: "https://glua.dev",
         }
       });
     } catch(e) {
@@ -256,7 +262,7 @@ export class BaseSession extends Container<Env> {
     // (handles the case where Cloudflare hasn't fully freed the previous container's slot)
     if (this.sessionState === "PROVISIONING" && this.startRetries < 3) {
       this.startRetries++;
-      console.log(`[onStop] Container died during provisioning, retry ${this.startRetries}/3`);
+      console.warn(`[onStop] Container died during provisioning, retry ${this.startRetries}/3`);
       await new Promise(r => setTimeout(r, 2000));
       const sessionId = this.ctx.id.name!;
       void this.startContainer(sessionId);
@@ -279,23 +285,31 @@ export class BaseSession extends Container<Env> {
 
   onAgentMessage = (msg: MessageEvent) => {
     try {
-      const message: WebSocketMessage = JSON.parse(msg.data as string);
+      const message = JSON.parse(msg.data as string) as { type: string; payload?: unknown };
       switch (message.type) {
-        case "LOG":
-          // The agent is sending a new log line.
-          const lines = Array.isArray(message.payload) ? message.payload : [message.payload];
+        case "LOG": {
+          const lines = Array.isArray(message.payload) ? message.payload as string[] : [String(message.payload)];
           this.logBuffer.push(...lines);
           this.logLineCount += lines.length;
           this.broadcastToBrowsers("LOGS", lines);
           break;
+        }
         case "HEALTH":
           this.broadcastToBrowsers("HEALTH", message.payload);
           break;
-        case "METADATA":
-          this.sessionMetadata = message.payload as { branch: string; gameVersion: string; containerTag: string; startedAt: number };
-          this.sessionMetadata.startedAt = Date.now();
-          this.broadcastToBrowsers("CONTEXT_UPDATE", this.sessionMetadata);
+        case "METADATA": {
+          const p = message.payload as Record<string, unknown> | undefined;
+          if (p && typeof p.branch === "string" && typeof p.gameVersion === "string" && typeof p.containerTag === "string") {
+            this.sessionMetadata = {
+              branch: p.branch,
+              gameVersion: p.gameVersion,
+              containerTag: p.containerTag,
+              startedAt: Date.now(),
+            };
+            this.broadcastToBrowsers("CONTEXT_UPDATE", this.sessionMetadata);
+          }
           break;
+        }
         case "AGENT_SHUTDOWN":
            this.broadcastToBrowsers("LOGS", ["\u001b[31mAgent is shutting down...\u001b[0m"]);
            void this.closeSession("agent_shutdown");
@@ -310,22 +324,21 @@ export class BaseSession extends Container<Env> {
 
   onBrowserMessage(msg: MessageEvent) {
     try {
-      console.log("Received message from browser:", msg.data);
-      const message: WebSocketMessage = JSON.parse(msg.data as string);
+      const message = JSON.parse(msg.data as string) as { type: string; payload?: unknown };
       if (message.type === "REQUEST_EXTENSION") {
         this.handleExtensionRequest();
         return;
       }
       if (message.type === "CLOSE_SESSION") {
         if (this.sessionState === "ACTIVE") {
-          console.log("Browser requested session close");
           void this.closeSession("clean");
         }
         return;
       }
       if (this.containerSocket?.readyState === WebSocket.OPEN) {
         if (message.type === "SCRIPT") {
-            const content = message.payload.content || "";
+            const p = message.payload as { name?: string; content?: string } | undefined;
+            const content = p?.content ?? "";
             if (content.length > 65536) {
               this.broadcastToBrowsers("LOGS", ["\u001b[31mScript too large (max 64KB).\u001b[0m"]);
               return;
@@ -335,7 +348,7 @@ export class BaseSession extends Container<Env> {
               return;
             }
             this.scriptCount++;
-            const cleanName = (message.payload.name || "script").replace(/[^a-zA-Z0-9_-]/g, "_");
+            const cleanName = (p?.name || "script").replace(/[^a-zA-Z0-9_-]/g, "_");
             const resolvedName = `${cleanName}_${this.scriptCount}.lua`;
             this.scriptBuffer[resolvedName] = { content, logLine: this.logLineCount };
             this.broadcastToBrowsers("SCRIPT_EXECUTED", { name: resolvedName, content, logLine: this.logLineCount });
@@ -372,10 +385,6 @@ export class BaseSession extends Container<Env> {
   }
 
   async closeSession(reason: CloseReason) {
-    const stack = new Error().stack;
-    console.trace("Closing session", this.sessionState, "reason:", reason);
-    console.log(stack)
-
     if (this.sessionState === "CLOSED") return;
     this.sessionState = "CLOSED";
     const endedAt = Date.now();
@@ -428,7 +437,6 @@ export class BaseSession extends Container<Env> {
   }
 
   async alarm() {
-    console.log(`[alarm] state=${this.sessionState}, running=${this.running}`);
     try {
       await this.flushLogsToR2();
       await this.flushSessionToR2();
@@ -438,15 +446,11 @@ export class BaseSession extends Container<Env> {
 
     if (this.sessionState === "ACTIVE") {
       if (this.sessionEndTime && Date.now() >= this.sessionEndTime) {
-        console.log("[alarm] session time expired, closing");
         await this.closeSession("timer_expired");
         return;
       }
       this.renewActivityTimeout();
       this.ctx.storage.setAlarm(Date.now() + ACTIVITY_PING_INTERVAL);
-      console.log("[alarm] renewed activity timeout, next alarm scheduled");
-    } else {
-      console.log("[alarm] not rescheduling, session not active");
     }
   }
 
@@ -508,14 +512,12 @@ export class BaseSession extends Container<Env> {
     }
   }
 
-  sendToBrowser(ws: WebSocket, type: string, payload: any) {
-    console.log("Sending to browser:", type, payload);
-
+  sendToBrowser(ws: WebSocket, type: string, payload: unknown) {
     try { ws.send(JSON.stringify({ type, payload })); }
     catch (e) { console.error("Failed to send to browser socket:", e); }
   }
 
-  broadcastToBrowsers(type: string, payload: any) {
+  broadcastToBrowsers(type: string, payload: unknown) {
     const message = JSON.stringify({ type, payload });
 
     this.browserSockets.forEach(ws => {
@@ -547,16 +549,22 @@ async function hashIP(ip: string): Promise<string> {
   return btoa(String.fromCharCode(...new Uint8Array(hash)));
 }
 
+interface QueueEntry {
+  ticketId: string;
+  sessionType: string;
+  ip: string;
+  createdAt: number;
+}
+
+const QUEUE_ENTRY_TTL = 5 * 60 * 1000;
+const RESOLVED_TICKET_TTL = 2 * 60 * 1000;
+const QUEUE_CLEANUP_INTERVAL = 30 * 1000;
+
 export class QueueDO extends DurableObject<Env> {
   activeSessions: Map<string, string>; // sessionId → type
   sessionIPs: Map<string, string>; // sessionId → hashed IP
-  waitingQueue: {
-    ticketId: string;
-    sessionType: string;
-    ip: string;
-    resolve: (value: string) => void
-  }[];
-  resolvedTickets: Map<string, { sessionId: string; sessionType: string }>;
+  waitingQueue: QueueEntry[];
+  resolvedTickets: Map<string, { sessionId: string; sessionType: string; createdAt: number }>;
   maxPerType: Record<string, number>;
 
   constructor(ctx: DurableObjectState, env: Env) {
@@ -578,6 +586,36 @@ export class QueueDO extends DurableObject<Env> {
         const sessionId = key.slice("session:".length);
         this.activeSessions.set(sessionId, value.type);
         this.sessionIPs.set(sessionId, value.ip);
+      }
+
+      const now = Date.now();
+      const expiredKeys: string[] = [];
+
+      const queueStored = await ctx.storage.list<QueueEntry>({ prefix: "queue:" });
+      for (const [key, entry] of queueStored) {
+        if (now - entry.createdAt > QUEUE_ENTRY_TTL) {
+          expiredKeys.push(key);
+        } else {
+          this.waitingQueue.push(entry);
+        }
+      }
+
+      const resolvedStored = await ctx.storage.list<{ sessionId: string; sessionType: string; createdAt: number }>({ prefix: "resolved:" });
+      for (const [key, value] of resolvedStored) {
+        if (now - value.createdAt > RESOLVED_TICKET_TTL) {
+          expiredKeys.push(key);
+        } else {
+          const ticketId = key.slice("resolved:".length);
+          this.resolvedTickets.set(ticketId, value);
+        }
+      }
+
+      if (expiredKeys.length > 0) {
+        await ctx.storage.delete(expiredKeys);
+      }
+
+      if (this.waitingQueue.length > 0 || this.resolvedTickets.size > 0) {
+        await ctx.storage.setAlarm(Date.now() + QUEUE_CLEANUP_INTERVAL);
       }
     });
   }
@@ -643,7 +681,13 @@ export class QueueDO extends DurableObject<Env> {
     }
 
     if (url.pathname === "/api/request-session") {
+      if (request.method !== "POST") {
+        return new Response("Method not allowed", { status: 405 });
+      }
       const sessionType = url.searchParams.get("type") || "public";
+      if (!VALID_SESSION_TYPES.includes(sessionType as SessionType)) {
+        return new Response(JSON.stringify({ error: "Invalid session type" }), { status: 400, headers: { "Content-Type": "application/json" } });
+      }
       const rawIP = request.headers.get("CF-Connecting-IP") || "unknown";
       const clientIP = rawIP !== "unknown" ? await hashIP(rawIP) : "unknown";
 
@@ -670,9 +714,10 @@ export class QueueDO extends DurableObject<Env> {
         return new Response(JSON.stringify({ status: "READY", sessionId }), { headers: { "Content-Type": "application/json" }, });
       } else {
         const ticketId = crypto.randomUUID();
-        this.waitingQueue.push({ ticketId, sessionType, ip: clientIP, resolve: (sessionId: string) => {
-          this.resolvedTickets.set(ticketId, { sessionId, sessionType });
-        }});
+        const entry: QueueEntry = { ticketId, sessionType, ip: clientIP, createdAt: Date.now() };
+        this.waitingQueue.push(entry);
+        await this.ctx.storage.put(`queue:${ticketId}`, entry);
+        await this.ctx.storage.setAlarm(Date.now() + QUEUE_CLEANUP_INTERVAL);
         const position = this.waitingQueue.filter(w => w.sessionType === sessionType).length;
 
         const obsContext = parseContext(request.headers.get(OBS_CONTEXT_HEADER));
@@ -705,6 +750,7 @@ export class QueueDO extends DurableObject<Env> {
       if (this.resolvedTickets.has(ticketId)) {
         const { sessionId, sessionType } = this.resolvedTickets.get(ticketId)!;
         this.resolvedTickets.delete(ticketId);
+        void this.ctx.storage.delete(`resolved:${ticketId}`);
 
         return new Response(JSON.stringify({
           status: "READY",
@@ -751,7 +797,10 @@ export class QueueDO extends DurableObject<Env> {
           const nextInLine = this.waitingQueue.splice(idx, 1)[0];
           const newSessionId = crypto.randomUUID();
           await this.persistSession(newSessionId, nextInLine.sessionType, nextInLine.ip);
-          nextInLine.resolve(newSessionId);
+          const resolved = { sessionId: newSessionId, sessionType: nextInLine.sessionType, createdAt: Date.now() };
+          this.resolvedTickets.set(nextInLine.ticketId, resolved);
+          await this.ctx.storage.put(`resolved:${nextInLine.ticketId}`, resolved);
+          await this.ctx.storage.delete(`queue:${nextInLine.ticketId}`);
         }
       }
 
@@ -790,6 +839,34 @@ export class QueueDO extends DurableObject<Env> {
     }
 
     return new Response("Not found in QueueDO", { status: 404 });
+  }
+
+  async alarm() {
+    const now = Date.now();
+    const expiredKeys: string[] = [];
+
+    this.waitingQueue = this.waitingQueue.filter(entry => {
+      if (now - entry.createdAt > QUEUE_ENTRY_TTL) {
+        expiredKeys.push(`queue:${entry.ticketId}`);
+        return false;
+      }
+      return true;
+    });
+
+    for (const [ticketId, resolved] of this.resolvedTickets) {
+      if (now - resolved.createdAt > RESOLVED_TICKET_TTL) {
+        this.resolvedTickets.delete(ticketId);
+        expiredKeys.push(`resolved:${ticketId}`);
+      }
+    }
+
+    if (expiredKeys.length > 0) {
+      await this.ctx.storage.delete(expiredKeys);
+    }
+
+    if (this.waitingQueue.length > 0 || this.resolvedTickets.size > 0) {
+      await this.ctx.storage.setAlarm(Date.now() + QUEUE_CLEANUP_INTERVAL);
+    }
   }
 }
 
