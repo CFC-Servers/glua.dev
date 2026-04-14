@@ -422,6 +422,7 @@ export class BaseSession extends Container<Env> {
     const endedAt = Date.now();
     if (this.sessionMetadata) {
       this.sessionMetadata.endedAt = endedAt;
+      this.sessionMetadata.closeReason = reason;
     }
 
     if (this.containerSocket) {

@@ -42,6 +42,45 @@ export class VirtualConsole {
     }
   }
 
+  addSpinnerLine(initialText: string): { update: (text: string) => void; finalize: (text: string) => void; remove: () => void } {
+    const wasAtBottom = this.isAtBottom;
+    const lineDiv = document.createElement("div");
+    lineDiv.className = "console-output-line console-spinner-line";
+
+    const spinnerSpan = document.createElement("span");
+    spinnerSpan.className = "console-spinner";
+
+    const textSpan = document.createElement("span");
+    textSpan.innerHTML = this.ansiUp.ansi_to_html(initialText);
+
+    lineDiv.append(spinnerSpan, " ", textSpan);
+    this.container.appendChild(lineDiv);
+    if (wasAtBottom) this.container.scrollTop = this.container.scrollHeight;
+
+    const frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+    let frameIndex = 0;
+    spinnerSpan.textContent = frames[0];
+    const interval = setInterval(() => {
+      frameIndex = (frameIndex + 1) % frames.length;
+      spinnerSpan.textContent = frames[frameIndex];
+    }, 80);
+
+    return {
+      update: (text: string) => {
+        textSpan.innerHTML = this.ansiUp.ansi_to_html(text);
+      },
+      finalize: (text: string) => {
+        clearInterval(interval);
+        spinnerSpan.remove();
+        textSpan.innerHTML = this.ansiUp.ansi_to_html(text);
+      },
+      remove: () => {
+        clearInterval(interval);
+        lineDiv.remove();
+      },
+    };
+  }
+
   addScriptLink(name: string) {
     const wasAtBottom = this.isAtBottom;
     const el = document.createElement("div");

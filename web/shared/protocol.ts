@@ -38,6 +38,7 @@ export interface SessionMetadata {
   containerTag: string;
   startedAt: number;
   endedAt?: number;
+  closeReason?: string;
 }
 
 export interface SessionTimerPayload {

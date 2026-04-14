@@ -36,7 +36,15 @@
     let cleanClose = false;
     let reconnectAttempts = 0;
     const MAX_RECONNECT_ATTEMPTS = 5;
+    const RECONNECT_MESSAGES = [
+        "Connection lost. Trying to reconnect...",
+        "still trying...",
+        "hang tight, one more try...",
+        "still no luck, trying again...",
+        "last try...",
+    ];
 
+    let reconnectLine: ReturnType<VirtualConsole["addSpinnerLine"]> | null = null;
     let virtualConsole: VirtualConsole;
     let unsubscribeSessionState: (() => void) | null = null;
 
@@ -62,6 +70,7 @@
 
     onDestroy(() => {
         unsubscribeSessionState?.();
+        reconnectLine?.remove();
     });
 
     function renderReadonlySession() {
@@ -95,7 +104,8 @@
 
         socket.onopen = () => {
             if (reconnectAttempts > 0) {
-                virtualConsole.addLines(["\u001b[32mReconnected.\u001b[0m"]);
+                reconnectLine?.finalize("\u001b[32mReconnected.\u001b[0m");
+                reconnectLine = null;
                 reconnectAttempts = 0;
             } else {
                 virtualConsole.addLines(["\u001b[32mConnection established. Waiting for session...\u001b[0m"]);
@@ -105,9 +115,27 @@
             commandInput.focus();
         };
 
-        socket.onclose = (event: CloseEvent) => {
+        socket.onclose = async (event: CloseEvent) => {
             if (cleanClose || event.code === 1000) {
+                reconnectLine?.remove();
+                reconnectLine = null;
                 virtualConsole.addLines(["\u001b[90mConnection closed.\u001b[0m"]);
+                sessionState.set("closed");
+                commandInput.disabled = true;
+                appendEndedCard(outputContainer);
+                return;
+            }
+
+            // A close with code != 1000 could be genuine network trouble (reconnect)
+            // or the server having already ended the session (race between the
+            // SESSION_CLOSED message and the WS close frame). Ask the server which
+            // it is before committing to a reconnect storm
+            const closeReason = await getServerSideCloseReason();
+            if (closeReason !== null) {
+                cleanClose = true;
+                reconnectLine?.remove();
+                reconnectLine = null;
+                virtualConsole.addLines([messageForCloseReason(closeReason)]);
                 sessionState.set("closed");
                 commandInput.disabled = true;
                 appendEndedCard(outputContainer);
@@ -117,10 +145,17 @@
             if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
                 reconnectAttempts++;
                 const delay = Math.min(1000 * Math.pow(2, reconnectAttempts - 1), 10000);
-                virtualConsole.addLines([`\u001b[33mConnection lost. Reconnecting in ${Math.round(delay / 1000)}s... (attempt ${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})\u001b[0m`]);
+                const label = RECONNECT_MESSAGES[Math.min(reconnectAttempts - 1, RECONNECT_MESSAGES.length - 1)];
+                const labelWithCount = `${label} \u001b[90m(${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})\u001b[0m`;
+                if (!reconnectLine) {
+                    reconnectLine = virtualConsole.addSpinnerLine(labelWithCount);
+                } else {
+                    reconnectLine.update(labelWithCount);
+                }
                 setTimeout(() => attemptReconnect(), delay);
             } else {
-                virtualConsole.addLines(["\u001b[31mConnection lost. Could not reconnect.\u001b[0m"]);
+                reconnectLine?.finalize("\u001b[31mCouldn't reconnect. The session may have ended.\u001b[0m");
+                reconnectLine = null;
                 sessionState.set("closed");
                 commandInput.disabled = true;
                 appendEndedCard(outputContainer);
@@ -128,6 +163,9 @@
         };
 
         socket.onerror = (err) => {
+            // Suppress the noisy per-attempt error during reconnect — the spinner line
+            // already tells the user we're retrying
+            if (reconnectAttempts > 0) return;
             console.error("WebSocket error:", err);
             virtualConsole.addLines(["\u001b[31mWebSocket connection error.\u001b[0m"]);
         };
@@ -138,6 +176,34 @@
         const wsUrl = socket.url;
         socket = new WebSocket(wsUrl);
         setupSocket();
+    }
+
+    function messageForCloseReason(reason: string): string {
+        switch (reason) {
+            case "timer_expired": return "\u001b[33mSession expired.\u001b[0m";
+            case "deploy_rollout": return "\u001b[33mSession ended — we pushed an update.\u001b[0m";
+            case "clean": return "\u001b[90mSession ended.\u001b[0m";
+            case "agent_shutdown":
+            case "container_stopped":
+            case "container_error":
+                return "\u001b[31mSession ended unexpectedly.\u001b[0m";
+            default: return "\u001b[90mSession ended.\u001b[0m";
+        }
+    }
+
+    async function getServerSideCloseReason(): Promise<string | null> {
+        if (!socket) return null;
+        const sessionId = new URL(socket.url).searchParams.get("session");
+        if (!sessionId) return null;
+        try {
+            const res = await fetch(`/api/session-status?session=${sessionId}`);
+            if (!res.ok) return "";
+            const data = await res.json();
+            if (data?.status === "active") return null;
+            return data?.metadata?.closeReason ?? "";
+        } catch {
+            return null;
+        }
     }
 
     function endSession() {

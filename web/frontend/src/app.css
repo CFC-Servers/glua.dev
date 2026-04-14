@@ -12,6 +12,8 @@ body {
 ::-webkit-scrollbar-thumb:hover { background: #6b7280; }
 
 .console-output-line { white-space: pre-wrap; word-break: break-all; }
+.console-spinner-line { color: #fbbf24; }
+.console-spinner { display: inline-block; width: 1ch; }
 
 .console-script-link {
   display: inline-flex;
