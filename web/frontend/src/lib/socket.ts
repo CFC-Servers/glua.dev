@@ -36,6 +36,9 @@ export function attachMessageHandler(socket: WebSocket, virtualConsole: VirtualC
         case "SESSION_CLOSED":
           sessionState.set("closed");
           break;
+        case "SYSTEM_NOTICE":
+          virtualConsole.mountSystemNotice(msg.payload.message);
+          break;
         case "CONTEXT_UPDATE":
           sessionMetadata.set(msg.payload);
           break;

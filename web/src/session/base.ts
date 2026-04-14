@@ -185,7 +185,7 @@ export class BaseSession extends Container<Env> {
     if (typeof body.message !== "string" || body.message.length === 0) {
       return new Response("Missing message", { status: 400 });
     }
-    this.broadcast({ type: "LOGS", payload: [body.message] });
+    this.broadcast({ type: "SYSTEM_NOTICE", payload: { message: body.message } });
     return new Response("ok");
   }
 
@@ -278,10 +278,10 @@ export class BaseSession extends Container<Env> {
 
     if (isDeployRollout) {
       this.broadcast({
-        type: "LOGS",
-        payload: [
-          "\u001b[33m*** We just pushed an update to glua.dev. We can't hot-swap running sessions (yet), so yours had to be closed — sorry about that 🥀 Start a new one to pick up where you left off! ***\u001b[0m",
-        ],
+        type: "SYSTEM_NOTICE",
+        payload: {
+          message: "We just pushed an update to glua.dev. We can't hot-swap running sessions (yet), so yours had to be closed — sorry about that 🥀 Start a new one to pick up where you left off!",
+        },
       });
       await this.closeSession("deploy_rollout");
       return;

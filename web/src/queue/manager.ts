@@ -1,7 +1,7 @@
 import { DurableObject } from "cloudflare:workers";
 import type { SessionType } from "@glua/shared";
 import { MAX_SESSIONS_PER_IP, VALID_SESSION_TYPES } from "@glua/shared";
-import { CAPACITY, QUEUE_TIMING } from "../constants";
+import { CAPACITY, QUEUE_TIMING, SESSION_TIMING } from "../constants";
 import type { Env } from "../env";
 import { type CapacitySnapshot, notify, OBS_CONTEXT_HEADER, parseContext } from "../observability";
 import { hashIP } from "../utils";
@@ -15,7 +15,9 @@ import {
   stripResolvedPrefix,
   stripSessionPrefix,
 } from "./storage-keys";
-import type { QueueEntry, ResolvedTicket } from "./types";
+import type { ActiveSession, QueueEntry, ResolvedTicket } from "./types";
+
+const STALE_SESSION_CUTOFF = SESSION_TIMING.hardLimit + 60_000;
 
 /**
  * Global singleton that manages session allocation and the waiting queue
@@ -27,24 +29,25 @@ import type { QueueEntry, ResolvedTicket } from "./types";
  * Keyed as `idFromName("global-queue")` — there's exactly one of these
  */
 export class SessionManager extends DurableObject<Env> {
-  private activeSessions: Map<string, SessionType>;
-  private sessionIPs: Map<string, string>;
+  private activeSessions: Map<string, ActiveSession>;
   private waitingQueue: QueueEntry[];
   private resolvedTickets: Map<string, ResolvedTicket>;
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
     this.activeSessions = new Map();
-    this.sessionIPs = new Map();
     this.waitingQueue = [];
     this.resolvedTickets = new Map();
 
     ctx.blockConcurrencyWhile(async () => {
-      const stored = await ctx.storage.list<{ type: SessionType; ip: string }>({ prefix: SESSION_PREFIX });
+      const stored = await ctx.storage.list<Partial<ActiveSession>>({ prefix: SESSION_PREFIX });
       for (const [key, value] of stored) {
         const sessionId = stripSessionPrefix(key);
-        this.activeSessions.set(sessionId, value.type);
-        this.sessionIPs.set(sessionId, value.ip);
+        this.activeSessions.set(sessionId, {
+          type: (value.type ?? "public") as SessionType,
+          ip: value.ip ?? "unknown",
+          createdAt: value.createdAt ?? 0,
+        });
       }
 
       const now = Date.now();
@@ -115,10 +118,11 @@ export class SessionManager extends DurableObject<Env> {
       return Response.json({ error: "Missing 'message' string in body" }, { status: 400 });
     }
 
+    this.pruneStaleSessions();
     const entries = Array.from(this.activeSessions.entries());
     const results = await Promise.allSettled(
-      entries.map(async ([sessionId, type]) => {
-        const binding = this.bindingForType(type);
+      entries.map(async ([sessionId, entry]) => {
+        const binding = this.bindingForType(entry.type);
         if (!binding) return;
         const stub = binding.get(binding.idFromName(sessionId));
         await stub.fetch("http://do/internal/broadcast", {
@@ -246,11 +250,11 @@ export class SessionManager extends DurableObject<Env> {
 
   private async handleSessionClosed(request: Request): Promise<Response> {
     const { sessionId } = await request.json<{ sessionId: string }>();
-    const closedType = this.activeSessions.get(sessionId);
+    const closedEntry = this.activeSessions.get(sessionId);
     await this.removeSession(sessionId);
 
-    if (closedType) {
-      const idx = this.waitingQueue.findIndex((w) => w.sessionType === closedType);
+    if (closedEntry) {
+      const idx = this.waitingQueue.findIndex((w) => w.sessionType === closedEntry.type);
       if (idx !== -1) {
         const nextInLine = this.waitingQueue.splice(idx, 1)[0];
         const newSessionId = crypto.randomUUID();
@@ -275,9 +279,11 @@ export class SessionManager extends DurableObject<Env> {
       return Response.json({ status: "not-found" }, { status: 404 });
     }
 
-    if (this.activeSessions.has(sessionId)) {
-      const sessionType = this.activeSessions.get(sessionId)!;
-      return Response.json({ status: "active", sessionType });
+    this.pruneStaleSessions();
+
+    const active = this.activeSessions.get(sessionId);
+    if (active) {
+      return Response.json({ status: "active", sessionType: active.type });
     }
 
     const logKey = `sessions/${sessionId}/logs.log`;
@@ -306,26 +312,28 @@ export class SessionManager extends DurableObject<Env> {
 
   private activeSessionCountForIP(ip: string): number {
     let count = 0;
-    for (const [sessionId, sessionIp] of this.sessionIPs) {
-      if (sessionIp === ip && this.activeSessions.has(sessionId)) count++;
+    for (const entry of this.activeSessions.values()) {
+      if (entry.ip === ip) count++;
     }
     return count;
   }
 
   private activeCountForType(type: string): number {
     let count = 0;
-    for (const t of this.activeSessions.values()) {
-      if (t === type) count++;
+    for (const entry of this.activeSessions.values()) {
+      if (entry.type === type) count++;
     }
     return count;
   }
 
   private hasCapacity(type: SessionType): boolean {
+    this.pruneStaleSessions();
     const max = CAPACITY.maxPerType[type] ?? 2;
     return this.activeCountForType(type) < max && this.activeSessions.size < CAPACITY.maxTotal;
   }
 
   private snapshotFor(branch: string): CapacitySnapshot {
+    this.pruneStaleSessions();
     return {
       branch,
       branchUsed: this.activeCountForType(branch),
@@ -336,17 +344,29 @@ export class SessionManager extends DurableObject<Env> {
     };
   }
 
+  private pruneStaleSessions(): void {
+    const cutoff = Date.now() - STALE_SESSION_CUTOFF;
+    const stale: string[] = [];
+    for (const [sessionId, entry] of this.activeSessions) {
+      if (entry.createdAt < cutoff) stale.push(sessionId);
+    }
+    if (stale.length === 0) return;
+    for (const sessionId of stale) {
+      this.activeSessions.delete(sessionId);
+    }
+    this.notifyAsync(this.ctx.storage.delete(stale.map(sessionKey)).then(() => undefined));
+  }
+
   // ── Storage helpers ──
 
   private async persistSession(sessionId: string, type: SessionType, ip: string) {
-    this.activeSessions.set(sessionId, type);
-    this.sessionIPs.set(sessionId, ip);
-    await this.ctx.storage.put(sessionKey(sessionId), { type, ip });
+    const entry: ActiveSession = { type, ip, createdAt: Date.now() };
+    this.activeSessions.set(sessionId, entry);
+    await this.ctx.storage.put(sessionKey(sessionId), entry);
   }
 
   private async removeSession(sessionId: string) {
     this.activeSessions.delete(sessionId);
-    this.sessionIPs.delete(sessionId);
     await this.ctx.storage.delete(sessionKey(sessionId));
   }
 

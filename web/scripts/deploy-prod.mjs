@@ -8,7 +8,7 @@ import { dirname, join } from "node:path";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const GRACE_SECONDS = 15;
-const ALERT_MESSAGE = `\u001b[33m*** glua.dev is deploying an update in ${GRACE_SECONDS}s — your session will briefly disconnect. Start a new one if it doesn't come back. ***\u001b[0m`;
+const ALERT_MESSAGE = `⚠️ We're pushing an update in ${GRACE_SECONDS}s — your session will be closed, sorry about that 🥀 You'll still be able to view its logs afterward, and you can start a new session anytime!`;
 
 function run(command, args) {
   return new Promise((resolve, reject) => {
@@ -20,6 +20,9 @@ function run(command, args) {
     child.on("error", reject);
   });
 }
+
+console.log(`[deploy-prod] building frontend…`);
+await run("npm", ["run", "build"]);
 
 console.log(`[deploy-prod] broadcasting heads-up to active sessions…`);
 try {

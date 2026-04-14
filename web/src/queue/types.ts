@@ -12,3 +12,9 @@ export interface ResolvedTicket {
   sessionType: SessionType;
   createdAt: number;
 }
+
+export interface ActiveSession {
+  type: SessionType;
+  ip: string;
+  createdAt: number;
+}

@@ -12,6 +12,9 @@ export type ServerMessage =
   // Starts or updates the session countdown bar
   | { type: "SESSION_TIMER"; payload: SessionTimerPayload }
   | { type: "SESSION_CLOSED" }
+  // An out-of-band message from glua.dev itself (deploy notices, ops broadcasts)
+  // rendered as a styled card rather than a raw log line
+  | { type: "SYSTEM_NOTICE"; payload: { message: string } }
   // Branch/version info the agent reports on boot
   | { type: "CONTEXT_UPDATE"; payload: SessionMetadata }
   // A script the user just ran — surfaced inline in the console as a clickable link

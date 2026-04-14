@@ -1,5 +1,7 @@
 import AnsiUp from "ansi_up";
+import { mount } from "svelte";
 import { get } from "svelte/store";
+import SystemNotice from "../components/SystemNotice.svelte";
 import { scriptMap, viewingScript } from "./stores";
 
 /** Scrollable, ANSI-rendered log output backed by a plain div. */
@@ -79,6 +81,18 @@ export class VirtualConsole {
         lineDiv.remove();
       },
     };
+  }
+
+  mountSystemNotice(message: string) {
+    const wasAtBottom = this.isAtBottom;
+    const target = document.createElement("div");
+    this.container.appendChild(target);
+    mount(SystemNotice, { target, props: { message } });
+    if (wasAtBottom) {
+      requestAnimationFrame(() => {
+        this.container.scrollTop = this.container.scrollHeight;
+      });
+    }
   }
 
   addScriptLink(name: string) {
