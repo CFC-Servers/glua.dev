@@ -1,6 +1,5 @@
 <script lang="ts">
   import { onMount, afterUpdate } from "svelte";
-  import { get } from "svelte/store";
   import Modal from "./components/Modal.svelte";
   import IPLimited from "./components/IPLimited.svelte";
   import Console from "./components/Console.svelte";
@@ -58,9 +57,12 @@
     updatePanelWidths();
   });
 
+  let suppressNextEditorPersist = false;
   isEditorOpen.subscribe((open) => {
-    const state = get(sessionState);
-    if (state === "readonly" || state === "closed") return;
+    if (suppressNextEditorPersist) {
+      suppressNextEditorPersist = false;
+      return;
+    }
     localStorage.setItem(EDITOR_OPEN_KEY, JSON.stringify(open));
   });
 
@@ -84,6 +86,7 @@
           sessionMetadata.set(data.metadata);
         }
         sessionState.set("readonly");
+        suppressNextEditorPersist = true;
         isEditorOpen.set(false);
         view = "console";
         return;
