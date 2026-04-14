@@ -574,6 +574,26 @@ export class QueueDO extends DurableObject<Env> {
       "dev": 2,
     };
 
+    ctx.blockConcurrencyWhile(async () => {
+      const stored = await ctx.storage.list<{ type: string; ip: string }>({ prefix: "session:" });
+      for (const [key, value] of stored) {
+        const sessionId = key.slice("session:".length);
+        this.activeSessions.set(sessionId, value.type);
+        this.sessionIPs.set(sessionId, value.ip);
+      }
+    });
+  }
+
+  private async persistSession(sessionId: string, type: string, ip: string) {
+    this.activeSessions.set(sessionId, type);
+    this.sessionIPs.set(sessionId, ip);
+    await this.ctx.storage.put(`session:${sessionId}`, { type, ip });
+  }
+
+  private async removeSession(sessionId: string) {
+    this.activeSessions.delete(sessionId);
+    this.sessionIPs.delete(sessionId);
+    await this.ctx.storage.delete(`session:${sessionId}`);
   }
 
   activeSessionCountForIP(ip: string): number {
@@ -648,8 +668,7 @@ export class QueueDO extends DurableObject<Env> {
 
       if (this.hasCapacity(sessionType)) {
         const sessionId = crypto.randomUUID();
-        this.activeSessions.set(sessionId, sessionType);
-        this.sessionIPs.set(sessionId, clientIP);
+        await this.persistSession(sessionId, sessionType, clientIP);
         return new Response(JSON.stringify({ status: "READY", sessionId }), { headers: { "Content-Type": "application/json" }, });
       } else {
         const ticketId = crypto.randomUUID();
@@ -726,16 +745,14 @@ export class QueueDO extends DurableObject<Env> {
     if (url.pathname === "/api/session-closed") {
       const { sessionId } = await request.json<{sessionId: string}>();
       const closedType = this.activeSessions.get(sessionId);
-      this.activeSessions.delete(sessionId);
-      this.sessionIPs.delete(sessionId);
+      await this.removeSession(sessionId);
 
       if (closedType) {
         const idx = this.waitingQueue.findIndex(w => w.sessionType === closedType);
         if (idx !== -1) {
           const nextInLine = this.waitingQueue.splice(idx, 1)[0];
           const newSessionId = crypto.randomUUID();
-          this.activeSessions.set(newSessionId, nextInLine.sessionType);
-          this.sessionIPs.set(newSessionId, nextInLine.ip);
+          await this.persistSession(newSessionId, nextInLine.sessionType, nextInLine.ip);
           nextInLine.resolve(newSessionId);
         }
       }
