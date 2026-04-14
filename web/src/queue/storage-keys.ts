@@ -1,6 +1,3 @@
-// Key schema for SessionManager's Durable Object storage
-// One place to check if you're ever wondering what keys exist
-
 export const SESSION_PREFIX = "session:";
 export const QUEUE_PREFIX = "queue:";
 export const RESOLVED_PREFIX = "resolved:";

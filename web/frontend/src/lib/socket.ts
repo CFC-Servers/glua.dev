@@ -2,8 +2,11 @@ import type { ServerMessage } from "@glua/shared";
 import type { VirtualConsole } from "./virtual-console";
 import { sessionState, sessionTimer, sessionMetadata, scriptMap } from "./stores";
 import { writable } from "svelte/store";
+import { createEma } from "./smoothing";
 
 export const healthData = writable<{ cpuUsage: number; diskUsage: number }>({ cpuUsage: 0, diskUsage: 0 });
+
+const smoothCpu = createEma(0.3);
 
 /**
  * Wires up a single message handler on the socket that parses once
@@ -22,7 +25,7 @@ export function attachMessageHandler(socket: WebSocket, virtualConsole: VirtualC
           break;
         case "HEALTH":
           healthData.set({
-            cpuUsage: msg.payload.cpuusage ?? 0,
+            cpuUsage: smoothCpu(msg.payload.cpuusage ?? 0),
             diskUsage: msg.payload.diskusage ?? 0,
           });
           break;

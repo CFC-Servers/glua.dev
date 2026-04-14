@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount, afterUpdate } from "svelte";
+  import { get } from "svelte/store";
   import Modal from "./components/Modal.svelte";
   import IPLimited from "./components/IPLimited.svelte";
   import Console from "./components/Console.svelte";
@@ -41,7 +42,7 @@
     }
 
     const editorOpen = localStorage.getItem(EDITOR_OPEN_KEY);
-    isEditorOpen.set(editorOpen ? JSON.parse(editorOpen) : false);
+    isEditorOpen.set(editorOpen === null ? true : JSON.parse(editorOpen));
 
     const handleKeydown = (e: KeyboardEvent) => {
       if (e.key === "." && (e.metaKey || e.ctrlKey)) {
@@ -58,6 +59,8 @@
   });
 
   isEditorOpen.subscribe((open) => {
+    const state = get(sessionState);
+    if (state === "readonly" || state === "closed") return;
     localStorage.setItem(EDITOR_OPEN_KEY, JSON.stringify(open));
   });
 
@@ -81,6 +84,7 @@
           sessionMetadata.set(data.metadata);
         }
         sessionState.set("readonly");
+        isEditorOpen.set(false);
         view = "console";
         return;
       }

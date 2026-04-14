@@ -8,7 +8,10 @@
     import StatusPanel from "./StatusPanel.svelte";
     import SessionEndedCard from "./SessionEndedCard.svelte";
 
+    let endedCardShown = false;
     function appendEndedCard(container: HTMLElement) {
+        if (endedCardShown) return;
+        endedCardShown = true;
         const target = document.createElement("div");
         container.appendChild(target);
         mount(SessionEndedCard, { target });
@@ -40,8 +43,6 @@
     onMount(() => {
         virtualConsole = new VirtualConsole(outputContainer);
 
-        // Single subscription for the lifetime of the component — server-driven
-        // close events flow through the centralized handler into sessionState
         unsubscribeSessionState = sessionState.subscribe((state) => {
             if (state === "closed" && !cleanClose && socket) {
                 cleanClose = true;

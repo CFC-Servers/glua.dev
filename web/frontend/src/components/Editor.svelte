@@ -1,5 +1,4 @@
 <script lang="ts">
-    import { onMount } from "svelte";
     import CodeMirror from "svelte-codemirror-editor";
     import { keymap } from "@codemirror/view";
     import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
@@ -16,7 +15,8 @@
 
     $: inactive = $sessionState === "closed" || $sessionState === "readonly";
 
-    let value = `-- Welcome to the GLua Editor!
+    const STORAGE_KEY = "glua-editor-content";
+    const DEFAULT_CONTENT = `-- Welcome to the GLua Editor!
 
 function hello()
   print("Hello from the editor!")
@@ -25,12 +25,20 @@ end
 hello()
 `;
 
-    onMount(() => {
-        const savedContent = localStorage.getItem("glua-editor-content");
-        if (savedContent && savedContent !== "undefined") {
-            value = savedContent;
-        }
-    });
+    // Read synchronously so CodeMirror sees the correct initial value on mount.
+    // Doing this in onMount races with CodeMirror's own init and can also let
+    // the editor's first on:change overwrite localStorage with the default
+    function loadInitialContent(): string {
+        const saved = localStorage.getItem(STORAGE_KEY);
+        return saved && saved !== "undefined" ? saved : DEFAULT_CONTENT;
+    }
+
+    let value = loadInitialContent();
+
+    // Driven by the bound `value` rather than CodeMirror's on:change event,
+    // which can fire with a transient empty string during init and wipe the
+    // saved script before the user ever types
+    $: if (typeof value === "string") localStorage.setItem(STORAGE_KEY, value);
 
     function runScript() {
         if (!socket || socket.readyState !== WebSocket.OPEN) return;
@@ -59,7 +67,6 @@ hello()
                     keymap.of([...defaultKeymap, ...historyKeymap, {key: "Ctrl-Enter", run: () => { runScript(); return true; }}]),
                     gluaTheme
                 ]}
-                on:change={(e) => localStorage.setItem("glua-editor-content", e.detail.value)}
             />
         </div>
         <div id="editor-footer">

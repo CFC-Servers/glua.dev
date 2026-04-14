@@ -1,4 +1,6 @@
 <script lang="ts">
+    import { DISCORD_URL } from "../lib/links";
+
     let copied = false;
 
     function share() {
@@ -21,5 +23,6 @@
                 {copied ? "Copied!" : "Share Logs"}
             </button>
         </div>
+        <p class="text-gray-500 text-xs mt-3">Questions or ideas? <a href={DISCORD_URL} target="_blank" rel="noopener noreferrer" class="text-indigo-400 hover:text-indigo-300 hover:underline">Come say hi on Discord</a></p>
     </div>
 </div>

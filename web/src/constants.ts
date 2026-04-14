@@ -1,4 +1,3 @@
-// Server-side timing and capacity constants
 // Shared constants (session types, limits) live in @glua/shared
 
 export const SESSION_TIMING = {

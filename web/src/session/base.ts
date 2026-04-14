@@ -139,7 +139,7 @@ export class BaseSession extends Container<Env> {
     this.broadcast({ type: "LOGS", payload: ["\u001b[32mAgent connected. Session is live.\u001b[0m"] });
 
     this.renewActivityTimeout();
-    this.ctx.storage.setAlarm(Date.now() + SESSION_TIMING.activityPing);
+    this.scheduleNextAlarm();
 
     ws.addEventListener("message", this.onAgentMessage);
     ws.addEventListener("close", () => this.closeSession("agent_ws_close"));
@@ -156,8 +156,7 @@ export class BaseSession extends Container<Env> {
       this.send(ws, { type: "SESSION_TIMER", payload: this.timerPayload() });
     }
 
-    // Restore logs and scripts for late-joining browsers
-    // Intentionally async — we don't block the DO's concurrency gate on R2 reads
+    // Async so we don't block the DO's concurrency gate on R2 reads
     void this.restoreHistory(ws, sessionId);
 
     if (this.sessionState === "PROVISIONING") {
@@ -339,7 +338,6 @@ export class BaseSession extends Container<Env> {
         });
       }
 
-      // Forward all client messages (COMMAND, SCRIPT) to the container agent
       this.containerSocket.send(JSON.stringify(message));
     } catch (e) {
       console.error("Failed to parse browser message:", e);
@@ -372,6 +370,7 @@ export class BaseSession extends Container<Env> {
     this.sessionDuration = newDuration;
     this.sessionEndTime = newEndTime;
     this.broadcast({ type: "SESSION_TIMER", payload: this.timerPayload() });
+    this.scheduleNextAlarm();
   }
 
   // ── Session shutdown ──
@@ -456,8 +455,14 @@ export class BaseSession extends Container<Env> {
         return;
       }
       this.renewActivityTimeout();
-      this.ctx.storage.setAlarm(Date.now() + SESSION_TIMING.activityPing);
+      this.scheduleNextAlarm();
     }
+  }
+
+  private scheduleNextAlarm() {
+    const nextPing = Date.now() + SESSION_TIMING.activityPing;
+    const target = this.sessionEndTime ? Math.min(nextPing, this.sessionEndTime) : nextPing;
+    this.ctx.storage.setAlarm(target);
   }
 
   // ── R2 persistence ──

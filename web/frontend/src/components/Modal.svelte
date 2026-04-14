@@ -10,24 +10,34 @@
     async function requestSession() {
         inQueue = true;
         queuePosition = "Connecting...";
-        
+
         try {
             const response = await fetch(`/api/request-session?type=${containerType}`, { method: "POST" });
-            const data = await response.json();
+            // Non-JSON error pages (e.g. a Cloudflare 5xx HTML) fall through to
+            // the unknown-status branch below and surface a friendly error
+            const data = await response.json().catch(() => ({}));
 
             if (data.status === "READY") {
                 dispatch("startsession", { sessionId: data.sessionId, sessionType: containerType });
-            } else if (data.status === "IP_LIMIT") {
+                return;
+            }
+            if (data.status === "IP_LIMIT") {
                 dispatch("iplimited", { limit: data.limit });
                 inQueue = false;
-            } else if (data.status === "QUEUED") {
+                return;
+            }
+            if (data.status === "QUEUED") {
                 queuePosition = data.position;
                 pollQueueStatus(data.ticketId);
+                return;
             }
+
+            inQueue = false;
+            queueError = "Couldn't start a session. Please try again in a moment.";
         } catch (e) {
             console.error("Failed to request session:", e);
             inQueue = false;
-            // You can add error handling here to show a message to the user
+            queueError = "Couldn't reach the server. Check your connection and try again.";
         }
     }
 
