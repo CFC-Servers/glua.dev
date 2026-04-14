@@ -32,13 +32,24 @@ export type AgentMessage =
   | { type: "METADATA"; payload: AgentMetadataPayload }
   | { type: "AGENT_SHUTDOWN" };
 
+export type CloseReason =
+  | "clean"
+  | "timer_expired"
+  | "agent_shutdown"
+  | "container_stopped"
+  | "container_error"
+  | "container_start_failed"
+  | "agent_ws_close"
+  | "agent_ws_error"
+  | "deploy_rollout";
+
 export interface SessionMetadata {
   branch: string;
   gameVersion: string;
   containerTag: string;
   startedAt: number;
   endedAt?: number;
-  closeReason?: string;
+  closeReason?: CloseReason;
 }
 
 export interface SessionTimerPayload {

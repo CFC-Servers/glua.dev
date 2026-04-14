@@ -171,7 +171,7 @@ export class SessionManager extends DurableObject<Env> {
       // CF always populates this header in production — getting here means
       // either an unusual proxy setup or a Cloudflare bug. Either way it
       // breaks our per-IP rate limiting, so we want to know about it
-      this.ctx.waitUntil(
+      this.notifyAsync(
         notify.warning(this.env, {
           title: "Missing CF-Connecting-IP",
           description: "A request reached SessionManager without a CF-Connecting-IP header — per-IP rate limiting is disabled for this session",
@@ -183,7 +183,7 @@ export class SessionManager extends DurableObject<Env> {
 
     if (clientIP !== "unknown" && this.activeSessionCountForIP(clientIP) >= MAX_SESSIONS_PER_IP) {
       const obsContext = parseContext(request.headers.get(OBS_CONTEXT_HEADER));
-      this.ctx.waitUntil(
+      this.notifyAsync(
         notify.warning(this.env, {
           title: "IP rate limit hit",
           description: `Tried to open a **${sessionType}** session past the per-IP limit of **${MAX_SESSIONS_PER_IP}**.`,
@@ -208,7 +208,7 @@ export class SessionManager extends DurableObject<Env> {
 
     const obsContext = parseContext(request.headers.get(OBS_CONTEXT_HEADER));
     if (obsContext) {
-      this.ctx.waitUntil(
+      this.notifyAsync(
         notify.queueEntered(this.env, {
           sessionType,
           position,
@@ -299,6 +299,10 @@ export class SessionManager extends DurableObject<Env> {
   }
 
   // ── Capacity tracking ──
+
+  private notifyAsync(promise: Promise<unknown>): void {
+    this.ctx.waitUntil(promise);
+  }
 
   private activeSessionCountForIP(ip: string): number {
     let count = 0;

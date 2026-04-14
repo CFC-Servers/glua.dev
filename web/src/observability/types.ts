@@ -1,13 +1,6 @@
-export type CloseReason =
-  | "clean"
-  | "timer_expired"
-  | "agent_shutdown"
-  | "container_stopped"
-  | "container_error"
-  | "container_start_failed"
-  | "agent_ws_close"
-  | "agent_ws_error"
-  | "deploy_rollout";
+import type { CloseReason } from "@glua/shared";
+
+export type { CloseReason };
 
 export interface RequestContext {
   ip: string;

@@ -128,7 +128,7 @@ export class BaseSession extends Container<Env> {
     if (this.containerSocket || this.sessionState !== "PROVISIONING") {
       const warnMsg = `Agent connection in unexpected state: ${this.sessionState}, containerSocket=${!!this.containerSocket}`;
       console.warn(warnMsg);
-      this.ctx.waitUntil(
+      this.notifyAsync(
         notify.error(this.env, {
           where: "handleAgentConnection: unexpected state",
           error: new Error(warnMsg),
@@ -239,7 +239,7 @@ export class BaseSession extends Container<Env> {
         type: "LOGS",
         payload: [`\u001b[31mFailed to start container: ${e instanceof Error ? e.message : String(e)}\u001b[0m`],
       });
-      this.ctx.waitUntil(
+      this.notifyAsync(
         notify.error(this.env, {
           where: "startContainer",
           error: e,
@@ -287,7 +287,7 @@ export class BaseSession extends Container<Env> {
       return;
     }
 
-    this.ctx.waitUntil(
+    this.notifyAsync(
       notify.error(this.env, {
         where: "Container.onError",
         error,
@@ -454,7 +454,7 @@ export class BaseSession extends Container<Env> {
 
     await this.notifyQueueManagerOfClosure();
 
-    this.ctx.waitUntil(
+    this.notifyAsync(
       (async () => {
         const capacity = await this.fetchCapacitySnapshot();
         await notify.sessionEnded(this.env, {
@@ -525,7 +525,7 @@ export class BaseSession extends Container<Env> {
     } catch (e) {
       console.error(`Failed to flush logs for ${this.ctx.id.name!}:`, e);
       this.logBuffer.unshift(...logsToFlush.trim().split("\n"));
-      this.ctx.waitUntil(
+      this.notifyAsync(
         notify.error(this.env, {
           where: "flushLogsToR2",
           error: e,
@@ -560,7 +560,7 @@ export class BaseSession extends Container<Env> {
       this.scriptBuffer = {};
     } catch (e) {
       console.error(`Failed to flush session data for ${this.ctx.id.name!}:`, e);
-      this.ctx.waitUntil(
+      this.notifyAsync(
         notify.error(this.env, {
           where: "flushSessionToR2",
           error: e,
@@ -584,6 +584,10 @@ export class BaseSession extends Container<Env> {
       console.error("[obs] fetchCapacitySnapshot failed:", e);
       return undefined;
     }
+  }
+
+  private notifyAsync(promise: Promise<unknown>): void {
+    this.ctx.waitUntil(promise);
   }
 
   private send(ws: WebSocket, message: ServerMessage): void {
