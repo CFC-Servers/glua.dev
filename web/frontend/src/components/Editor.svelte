@@ -1,6 +1,6 @@
 <script lang="ts">
     import CodeMirror from "svelte-codemirror-editor";
-    import { keymap } from "@codemirror/view";
+    import { EditorView, keymap } from "@codemirror/view";
     import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
     import { StreamLanguage } from "@codemirror/language";
     import { lua } from "../lib/lua-mode";
@@ -64,13 +64,29 @@ hello()
                 theme={oneDark}
                 extensions={[
                     history(),
-                    keymap.of([...defaultKeymap, ...historyKeymap, {key: "Ctrl-Enter", run: () => { runScript(); return true; }}]),
-                    gluaTheme
+                    keymap.of([
+                        { key: "Mod-Enter", run: () => { runScript(); return true; } },
+                        ...defaultKeymap,
+                        ...historyKeymap,
+                    ]),
+                    EditorView.domEventHandlers({
+                        mousedown(event, view) {
+                            const contentBottom = view.contentDOM.getBoundingClientRect().bottom;
+                            if (event.clientY > contentBottom) {
+                                view.dispatch({ selection: { anchor: view.state.doc.length } });
+                                view.focus();
+                                event.preventDefault();
+                                return true;
+                            }
+                            return false;
+                        },
+                    }),
+                    gluaTheme,
                 ]}
             />
         </div>
         <div id="editor-footer">
-            <button bind:this={runScriptButton} on:click={runScript} id="run-script-button" class="{inactive ? 'session-ended' : ''}" title="{inactive ? 'Session ended' : 'Run Script (Ctrl+Enter)'}" disabled={inactive}>
+            <button bind:this={runScriptButton} on:click={runScript} id="run-script-button" class="{inactive ? 'session-ended' : ''}" title="{inactive ? 'Session ended' : 'Run Script (⌘/Ctrl+Enter)'}" disabled={inactive}>
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
                     <path d="M9.222 5.934a.5.5 0 00-.722.434v7.264a.5.5 0 00.722.434l6-3.632a.5.5 0 000-.868l-6-3.632z" />
                 </svg>
