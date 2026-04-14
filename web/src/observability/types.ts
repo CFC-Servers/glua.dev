@@ -6,7 +6,8 @@ export type CloseReason =
   | "container_error"
   | "container_start_failed"
   | "agent_ws_close"
-  | "agent_ws_error";
+  | "agent_ws_error"
+  | "deploy_rollout";
 
 export interface RequestContext {
   ip: string;
@@ -44,6 +45,10 @@ export interface SessionEndedEvent {
   scriptCount: number;
   logLineCount: number;
   extensionGranted: boolean;
+  /** Container process exit code, when the session ended because the container stopped */
+  exitCode?: number;
+  /** "exit" for a clean stop, "runtime_signal" for a killed process */
+  exitReason?: string;
   context?: RequestContext;
   capacity?: CapacitySnapshot;
 }

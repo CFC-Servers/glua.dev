@@ -16,4 +16,7 @@ export interface Env {
 
   /** Optional — when set, fires Discord webhook notifications for observability */
   DISCORD_WEBHOOK_URL?: string;
+
+  /** Bearer token required to call /api/broadcast — matches GLUA_BROADCAST_TOKEN in .env */
+  BROADCAST_TOKEN?: string;
 }

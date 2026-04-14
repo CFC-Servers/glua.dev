@@ -40,6 +40,8 @@ export class BaseSession extends Container<Env> {
   private sessionDuration?: number;
   private extensionGranted = false;
   private startRetries = 0;
+  private lastExitCode?: number;
+  private lastExitReason?: string;
 
   // Best-effort geo context — lost on DO eviction, which is fine
   // Worst case the end-session embed is missing location info
@@ -69,11 +71,16 @@ export class BaseSession extends Container<Env> {
   // ── Fetch entrypoint ──
 
   override async fetch(request: Request): Promise<Response> {
+    const url = new URL(request.url);
+
+    if (url.pathname === "/internal/broadcast") {
+      return this.handleInternalBroadcast(request);
+    }
+
     if (this.sessionState === "CLOSED") {
       return new Response("This session has been closed.", { status: 410 });
     }
 
-    const url = new URL(request.url);
     if (request.headers.get("Upgrade") !== "websocket") {
       return new Response("Expected a WebSocket upgrade request.", { status: 426 });
     }
@@ -121,13 +128,15 @@ export class BaseSession extends Container<Env> {
     if (this.containerSocket || this.sessionState !== "PROVISIONING") {
       const warnMsg = `Agent connection in unexpected state: ${this.sessionState}, containerSocket=${!!this.containerSocket}`;
       console.warn(warnMsg);
-      void notify.error(this.env, {
-        where: "handleAgentConnection: unexpected state",
-        error: new Error(warnMsg),
-        sessionId: this.ctx.id.name,
-        branch: this.branch,
-        context: this.obsContext,
-      });
+      this.ctx.waitUntil(
+        notify.error(this.env, {
+          where: "handleAgentConnection: unexpected state",
+          error: new Error(warnMsg),
+          sessionId: this.ctx.id.name,
+          branch: this.branch,
+          context: this.obsContext,
+        }),
+      );
     }
 
     this.containerSocket = ws;
@@ -168,6 +177,16 @@ export class BaseSession extends Container<Env> {
 
     ws.addEventListener("message", (msg) => this.onBrowserMessage(msg));
     ws.addEventListener("close", () => this.browserSockets.delete(ws));
+  }
+
+  private async handleInternalBroadcast(request: Request): Promise<Response> {
+    if (request.method !== "POST") return new Response("Method not allowed", { status: 405 });
+    const body = await request.json<{ message?: string }>().catch(() => ({}) as { message?: string });
+    if (typeof body.message !== "string" || body.message.length === 0) {
+      return new Response("Missing message", { status: 400 });
+    }
+    this.broadcast({ type: "LOGS", payload: [body.message] });
+    return new Response("ok");
   }
 
   private async restoreHistory(ws: WebSocket, sessionId: string) {
@@ -220,13 +239,15 @@ export class BaseSession extends Container<Env> {
         type: "LOGS",
         payload: [`\u001b[31mFailed to start container: ${e instanceof Error ? e.message : String(e)}\u001b[0m`],
       });
-      void notify.error(this.env, {
-        where: "startContainer",
-        error: e,
-        sessionId,
-        branch: this.branch,
-        context: this.obsContext,
-      });
+      this.ctx.waitUntil(
+        notify.error(this.env, {
+          where: "startContainer",
+          error: e,
+          sessionId,
+          branch: this.branch,
+          context: this.obsContext,
+        }),
+      );
       await this.closeSession("container_start_failed");
     }
   }
@@ -236,7 +257,9 @@ export class BaseSession extends Container<Env> {
     this.renewActivityTimeout();
   }
 
-  override async onStop(): Promise<void> {
+  override async onStop(params: { exitCode: number; reason: "exit" | "runtime_signal" }): Promise<void> {
+    this.lastExitCode = params.exitCode;
+    this.lastExitReason = params.reason;
     if (this.sessionState === "PROVISIONING" && this.startRetries < 3) {
       this.startRetries++;
       console.warn(`[onStop] Container died during provisioning, retry ${this.startRetries}/3`);
@@ -249,13 +272,30 @@ export class BaseSession extends Container<Env> {
 
   override async onError(error: unknown): Promise<void> {
     console.error("Container error:", error);
-    void notify.error(this.env, {
-      where: "Container.onError",
-      error,
-      sessionId: this.ctx.id.name,
-      branch: this.branch,
-      context: this.obsContext,
-    });
+
+    const message = error instanceof Error ? error.message : String(error);
+    const isDeployRollout = /new version rollout/i.test(message);
+
+    if (isDeployRollout) {
+      this.broadcast({
+        type: "LOGS",
+        payload: [
+          "\u001b[33m*** We just pushed an update to glua.dev. We can't hot-swap running sessions (yet), so yours had to be closed — sorry about that 🥀 Start a new one to pick up where you left off! ***\u001b[0m",
+        ],
+      });
+      await this.closeSession("deploy_rollout");
+      return;
+    }
+
+    this.ctx.waitUntil(
+      notify.error(this.env, {
+        where: "Container.onError",
+        error,
+        sessionId: this.ctx.id.name,
+        branch: this.branch,
+        context: this.obsContext,
+      }),
+    );
     await this.closeSession("container_error");
   }
 
@@ -413,21 +453,25 @@ export class BaseSession extends Container<Env> {
 
     await this.notifyQueueManagerOfClosure();
 
-    void (async () => {
-      const capacity = await this.fetchCapacitySnapshot();
-      await notify.sessionEnded(this.env, {
-        sessionId: this.ctx.id.name ?? "unknown",
-        branch: this.branch,
-        reason,
-        startedAt: this.sessionMetadata?.startedAt,
-        endedAt,
-        scriptCount: this.scriptCount,
-        logLineCount: this.logLineCount,
-        extensionGranted: this.extensionGranted,
-        context: this.obsContext,
-        capacity,
-      });
-    })();
+    this.ctx.waitUntil(
+      (async () => {
+        const capacity = await this.fetchCapacitySnapshot();
+        await notify.sessionEnded(this.env, {
+          sessionId: this.ctx.id.name ?? "unknown",
+          branch: this.branch,
+          reason,
+          startedAt: this.sessionMetadata?.startedAt,
+          endedAt,
+          scriptCount: this.scriptCount,
+          logLineCount: this.logLineCount,
+          extensionGranted: this.extensionGranted,
+          exitCode: this.lastExitCode,
+          exitReason: this.lastExitReason,
+          context: this.obsContext,
+          capacity,
+        });
+      })(),
+    );
   }
 
   private async notifyQueueManagerOfClosure() {
@@ -480,13 +524,15 @@ export class BaseSession extends Container<Env> {
     } catch (e) {
       console.error(`Failed to flush logs for ${this.ctx.id.name!}:`, e);
       this.logBuffer.unshift(...logsToFlush.trim().split("\n"));
-      void notify.error(this.env, {
-        where: "flushLogsToR2",
-        error: e,
-        sessionId: this.ctx.id.name,
-        branch: this.branch,
-        context: this.obsContext,
-      });
+      this.ctx.waitUntil(
+        notify.error(this.env, {
+          where: "flushLogsToR2",
+          error: e,
+          sessionId: this.ctx.id.name,
+          branch: this.branch,
+          context: this.obsContext,
+        }),
+      );
     }
   }
 
@@ -513,13 +559,15 @@ export class BaseSession extends Container<Env> {
       this.scriptBuffer = {};
     } catch (e) {
       console.error(`Failed to flush session data for ${this.ctx.id.name!}:`, e);
-      void notify.error(this.env, {
-        where: "flushSessionToR2",
-        error: e,
-        sessionId: this.ctx.id.name,
-        branch: this.branch,
-        context: this.obsContext,
-      });
+      this.ctx.waitUntil(
+        notify.error(this.env, {
+          where: "flushSessionToR2",
+          error: e,
+          sessionId: this.ctx.id.name,
+          branch: this.branch,
+          context: this.obsContext,
+        }),
+      );
     }
   }
 

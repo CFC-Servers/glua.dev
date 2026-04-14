@@ -129,6 +129,7 @@ const CLOSE_REASON_DISPLAY: Record<CloseReason, { label: string; icon: string; a
   container_start_failed: { label: "container failed to start", icon: "✖", ansiCode: "2;31", color: COLORS.error },
   agent_ws_close: { label: "agent ws closed", icon: "⚠", ansiCode: "2;33", color: COLORS.warning },
   agent_ws_error: { label: "agent ws errored", icon: "⚠", ansiCode: "2;33", color: COLORS.warning },
+  deploy_rollout: { label: "deploy rollout", icon: "🚀", ansiCode: "2;36", color: COLORS.info },
 };
 
 export function buildSessionStartedEmbed(e: SessionStartedEvent): DiscordEmbed {
@@ -189,6 +190,11 @@ export function buildSessionEndedEmbed(e: SessionEndedEvent): DiscordEmbed {
     { name: "Extended", value: e.extensionGranted ? "✅" : "❌", inline: true },
   );
 
+  if (e.exitCode !== undefined) {
+    const exitValue = e.exitReason ? `${code(String(e.exitCode))} (${e.exitReason})` : code(String(e.exitCode));
+    fields.push({ name: "Exit code", value: exitValue, inline: true });
+  }
+
   return {
     title: "🏁 Session ended",
     url: sessionHistoryUrl(e.sessionId),
@@ -206,7 +212,9 @@ export function buildErrorEmbed(e: ErrorEvent): DiscordEmbed {
   const msg = truncate(rawMsg, LIMIT_ERROR_MESSAGE);
   const stack = err instanceof Error ? err.stack : undefined;
 
-  const lines: string[] = [`### ✖ ${truncate(e.where, 120)}`, ansi("2;31", msg)];
+  const lines: string[] = [];
+  if (e.sessionId) lines.push(code(truncate(e.sessionId, 100)));
+  lines.push(`### ✖ ${truncate(e.where, 120)}`, ansi("2;31", msg));
 
   if (stack) {
     lines.push("```ts\n" + truncate(stack, LIMIT_STACK) + "\n```");
@@ -216,9 +224,6 @@ export function buildErrorEmbed(e: ErrorEvent): DiscordEmbed {
   if (ctxSub) lines.push(ctxSub);
 
   const fields: DiscordEmbedField[] = [];
-  if (e.sessionId) {
-    fields.push({ name: "Session", value: code(truncate(e.sessionId, 100)), inline: true });
-  }
   if (e.branch) {
     const { emoji, label } = branchMeta(e.branch);
     fields.push({ name: "Branch", value: `${emoji} ${label}`, inline: true });

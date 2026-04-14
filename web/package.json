@@ -7,6 +7,8 @@
 	},
 	"scripts": {
 		"deploy": "wrangler deploy",
+		"deploy-prod": "node --env-file=.env scripts/deploy-prod.mjs",
+		"prod-alert": "node --env-file=.env scripts/prod-alert.mjs",
 		"dev": "wrangler dev",
 		"start": "wrangler dev",
 		"dev:frontend": "npm run dev --prefix frontend",

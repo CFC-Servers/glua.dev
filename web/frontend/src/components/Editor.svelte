@@ -66,6 +66,7 @@ hello()
                     history(),
                     keymap.of([
                         { key: "Mod-Enter", run: () => { runScript(); return true; } },
+                        { key: "Ctrl-Enter", run: () => { runScript(); return true; } },
                         ...defaultKeymap,
                         ...historyKeymap,
                     ]),

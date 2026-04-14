@@ -93,8 +93,58 @@ export class SessionManager extends DurableObject<Env> {
         return this.handleSessionClosed(request);
       case "/api/session-status":
         return this.handleSessionStatus(url);
+      case "/api/broadcast":
+        return this.handleBroadcast(request);
       default:
         return new Response("Not found", { status: 404 });
+    }
+  }
+
+  private async handleBroadcast(request: Request): Promise<Response> {
+    if (request.method !== "POST") return new Response("Method not allowed", { status: 405 });
+
+    const token = this.env.BROADCAST_TOKEN;
+    const auth = request.headers.get("Authorization");
+    if (!token || auth !== `Bearer ${token}`) {
+      return new Response("Unauthorized", { status: 401 });
+    }
+
+    const body = await request.json<{ message?: string }>().catch(() => ({}) as { message?: string });
+    const message = body.message;
+    if (typeof message !== "string" || message.length === 0) {
+      return Response.json({ error: "Missing 'message' string in body" }, { status: 400 });
+    }
+
+    const entries = Array.from(this.activeSessions.entries());
+    const results = await Promise.allSettled(
+      entries.map(async ([sessionId, type]) => {
+        const binding = this.bindingForType(type);
+        if (!binding) return;
+        const stub = binding.get(binding.idFromName(sessionId));
+        await stub.fetch("http://do/internal/broadcast", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ message }),
+        });
+      }),
+    );
+
+    const delivered = results.filter((r) => r.status === "fulfilled").length;
+    return Response.json({ sessions: entries.length, delivered });
+  }
+
+  private bindingForType(type: SessionType): DurableObjectNamespace | null {
+    switch (type) {
+      case "public":
+        return this.env.GMOD_PUBLIC;
+      case "sixty-four":
+        return this.env.GMOD_SIXTYFOUR;
+      case "prerelease":
+        return this.env.GMOD_PRERELEASE;
+      case "dev":
+        return this.env.GMOD_DEV;
+      default:
+        return null;
     }
   }
 
@@ -121,21 +171,25 @@ export class SessionManager extends DurableObject<Env> {
       // CF always populates this header in production — getting here means
       // either an unusual proxy setup or a Cloudflare bug. Either way it
       // breaks our per-IP rate limiting, so we want to know about it
-      void notify.warning(this.env, {
-        title: "Missing CF-Connecting-IP",
-        description: "A request reached SessionManager without a CF-Connecting-IP header — per-IP rate limiting is disabled for this session",
-        context: parseContext(request.headers.get(OBS_CONTEXT_HEADER)),
-      });
+      this.ctx.waitUntil(
+        notify.warning(this.env, {
+          title: "Missing CF-Connecting-IP",
+          description: "A request reached SessionManager without a CF-Connecting-IP header — per-IP rate limiting is disabled for this session",
+          context: parseContext(request.headers.get(OBS_CONTEXT_HEADER)),
+        }),
+      );
     }
     const clientIP = rawIP ? await hashIP(rawIP) : "unknown";
 
     if (clientIP !== "unknown" && this.activeSessionCountForIP(clientIP) >= MAX_SESSIONS_PER_IP) {
       const obsContext = parseContext(request.headers.get(OBS_CONTEXT_HEADER));
-      void notify.warning(this.env, {
-        title: "IP rate limit hit",
-        description: `Tried to open a **${sessionType}** session past the per-IP limit of **${MAX_SESSIONS_PER_IP}**.`,
-        context: obsContext,
-      });
+      this.ctx.waitUntil(
+        notify.warning(this.env, {
+          title: "IP rate limit hit",
+          description: `Tried to open a **${sessionType}** session past the per-IP limit of **${MAX_SESSIONS_PER_IP}**.`,
+          context: obsContext,
+        }),
+      );
       return Response.json({ status: "IP_LIMIT", limit: MAX_SESSIONS_PER_IP }, { status: 429 });
     }
 
@@ -154,12 +208,14 @@ export class SessionManager extends DurableObject<Env> {
 
     const obsContext = parseContext(request.headers.get(OBS_CONTEXT_HEADER));
     if (obsContext) {
-      void notify.queueEntered(this.env, {
-        sessionType,
-        position,
-        capacity: this.snapshotFor(sessionType),
-        context: obsContext,
-      });
+      this.ctx.waitUntil(
+        notify.queueEntered(this.env, {
+          sessionType,
+          position,
+          capacity: this.snapshotFor(sessionType),
+          context: obsContext,
+        }),
+      );
     }
 
     return Response.json({ status: "QUEUED", ticketId, position }, { status: 202 });
