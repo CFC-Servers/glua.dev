@@ -53,7 +53,6 @@ export class BaseSession extends Container<Env> {
   // In-memory only: on DO hibernation we lose geo/ISP fields in the end
   // embed, which is cosmetic — never a correctness concern.
   protected obsContext?: RequestContext;
-  private startMessageId?: string;
 
   private async fetchCapacitySnapshot(): Promise<CapacitySnapshot | undefined> {
     try {
@@ -108,7 +107,7 @@ export class BaseSession extends Container<Env> {
       this.obsContext = parseContext(request.headers.get(OBS_CONTEXT_HEADER));
       void (async () => {
         const capacity = await this.fetchCapacitySnapshot();
-        this.startMessageId = await notify.sessionStarted(this.env, {
+        await notify.sessionStarted(this.env, {
           sessionId,
           branch: this.branch,
           context: this.obsContext ?? { ip: "unknown" },
@@ -415,7 +414,6 @@ export class BaseSession extends Container<Env> {
         extensionGranted: this.extensionGranted,
         context: this.obsContext,
         capacity,
-        replyTo: this.startMessageId,
       });
     })();
   }

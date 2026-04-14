@@ -46,7 +46,6 @@ export interface SessionEndedEvent {
   extensionGranted: boolean;
   context?: RequestContext;
   capacity?: CapacitySnapshot;
-  replyTo?: string;
 }
 
 export interface QueueEnteredEvent {

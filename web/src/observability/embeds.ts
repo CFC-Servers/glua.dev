@@ -27,7 +27,6 @@ interface DiscordEmbed {
 
 export interface DiscordWebhookPayload {
   embeds: DiscordEmbed[];
-  message_reference?: { message_id: string };
 }
 
 const COLORS = {
@@ -197,7 +196,7 @@ export function buildSessionEndedEmbed(e: SessionEndedEvent): DiscordEmbed {
   );
 
   return {
-    title: `🏁 Session ended · ${reason.label}`,
+    title: "🏁 Session ended",
     url: sessionHistoryUrl(e.sessionId),
     description: truncate(lines.join("\n"), LIMIT_DESCRIPTION),
     color: reason.color,
