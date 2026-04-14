@@ -48,7 +48,7 @@
     ],
     "durable_objects": {
         "bindings": [
-            { "name": "QUEUE_DO", "class_name": "QueueDO" },
+            { "name": "SESSION_MANAGER", "class_name": "SessionManager" },
             { "name": "GMOD_PUBLIC", "class_name": "GmodPublic" },
             { "name": "GMOD_SIXTYFOUR", "class_name": "GmodSixtyFour" },
             { "name": "GMOD_PRERELEASE", "class_name": "GmodPrerelease" },
@@ -57,13 +57,19 @@
     },
     "migrations": [
         {
-            "tag": "v1",
+            "tag": "v2",
             "new_classes": [
                 "QueueDO",
                 "GmodPublic",
                 "GmodSixtyFour",
                 "GmodPrerelease",
                 "GmodDev"
+            ]
+        },
+        {
+            "tag": "v3",
+            "renamed_classes": [
+                { "from": "QueueDO", "to": "SessionManager" }
             ]
         }
     ]

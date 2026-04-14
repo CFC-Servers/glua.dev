@@ -186,10 +186,12 @@
             } catch (e) { console.error("Failed to process message", e); }
         };
 
-        socket.onclose = () => {
-            if (cleanClose) {
+        socket.onclose = (event: CloseEvent) => {
+            if (cleanClose || event.code === 1000) {
                 virtualConsole.addLines(["\u001b[90mConnection closed.\u001b[0m"]);
+                sessionState.set("closed");
                 commandInput.disabled = true;
+                appendEndedCard(outputContainer);
                 return;
             }
 
@@ -213,7 +215,7 @@
     }
 
     function attemptReconnect() {
-        if (!socket || cleanClose) return;
+        if (!socket || cleanClose || $sessionState === "closed") return;
         const wsUrl = socket.url;
         socket = new WebSocket(wsUrl);
         setupWebSocketHandlers();

@@ -28,7 +28,7 @@ export interface Env {
   GMOD_SIXTYFOUR: DurableObjectNamespace;
   GMOD_PRERELEASE: DurableObjectNamespace;
   GMOD_DEV: DurableObjectNamespace;
-  QUEUE_DO: DurableObjectNamespace<QueueDO>;
+  SESSION_MANAGER: DurableObjectNamespace<SessionManager>;
   LOG_BUCKET: R2Bucket;
   DISCORD_WEBHOOK_URL?: string;
 }
@@ -62,8 +62,8 @@ export class BaseSession extends Container<Env> {
 
   private async fetchCapacitySnapshot(): Promise<CapacitySnapshot | undefined> {
     try {
-      const queueDO = this.env.QUEUE_DO.get(this.env.QUEUE_DO.idFromName("global-queue"));
-      const res = await queueDO.fetch(`http://do/internal/capacity?branch=${encodeURIComponent(this.branch)}`);
+      const manager =this.env.SESSION_MANAGER.get(this.env.SESSION_MANAGER.idFromName("global-queue"));
+      const res = await manager.fetch(`http://do/internal/capacity?branch=${encodeURIComponent(this.branch)}`);
       if (!res.ok) return undefined;
       return await res.json<CapacitySnapshot>();
     } catch (e) {
@@ -86,6 +86,11 @@ export class BaseSession extends Container<Env> {
     this.logLineCount = 0;
     this.scriptBuffer = {};
     this.scriptCount = 0;
+
+    ctx.blockConcurrencyWhile(async () => {
+      const closed = await ctx.storage.get<boolean>("closed");
+      if (closed) this.sessionState = "CLOSED";
+    });
   }
 
   override async fetch(request: Request): Promise<Response> {
@@ -387,6 +392,7 @@ export class BaseSession extends Container<Env> {
   async closeSession(reason: CloseReason) {
     if (this.sessionState === "CLOSED") return;
     this.sessionState = "CLOSED";
+    await this.ctx.storage.put("closed", true);
     const endedAt = Date.now();
     if (this.sessionMetadata) {
       this.sessionMetadata.endedAt = endedAt;
@@ -428,8 +434,8 @@ export class BaseSession extends Container<Env> {
   }
 
   async notifyQueueManagerOfClosure() {
-    const queueDO = this.env.QUEUE_DO.get(this.env.QUEUE_DO.idFromName("global-queue"));
-    await queueDO.fetch("http://do/api/session-closed", {
+    const manager =this.env.SESSION_MANAGER.get(this.env.SESSION_MANAGER.idFromName("global-queue"));
+    await manager.fetch("http://do/api/session-closed", {
       method: "POST",
       headers: {"Content-Type": "application/json"},
       body: JSON.stringify({ sessionId: this.ctx.id.name! })
@@ -560,7 +566,7 @@ const QUEUE_ENTRY_TTL = 5 * 60 * 1000;
 const RESOLVED_TICKET_TTL = 2 * 60 * 1000;
 const QUEUE_CLEANUP_INTERVAL = 30 * 1000;
 
-export class QueueDO extends DurableObject<Env> {
+export class SessionManager extends DurableObject<Env> {
   activeSessions: Map<string, string>; // sessionId → type
   sessionIPs: Map<string, string>; // sessionId → hashed IP
   waitingQueue: QueueEntry[];
@@ -838,7 +844,7 @@ export class QueueDO extends DurableObject<Env> {
       }), { headers: { "Content-Type": "application/json" } });
     }
 
-    return new Response("Not found in QueueDO", { status: 404 });
+    return new Response("Not found", { status: 404 });
   }
 
   async alarm() {
@@ -878,8 +884,8 @@ export default {
     const forwarded = withObsHeader(request);
 
     if (url.pathname.startsWith("/api/")) {
-      const queueDO = env.QUEUE_DO.get(env.QUEUE_DO.idFromName("global-queue"));
-      return queueDO.fetch(forwarded);
+      const manager =env.SESSION_MANAGER.get(env.SESSION_MANAGER.idFromName("global-queue"));
+      return manager.fetch(forwarded);
     }
 
     if (url.pathname.startsWith("/ws/")) {
