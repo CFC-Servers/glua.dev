@@ -34,6 +34,16 @@
 
     $: inactive = $sessionState === "closed" || $sessionState === "readonly";
 
+    const MAX_COMMAND_LENGTH = 128;
+    const COUNTER_THRESHOLD = Math.floor(MAX_COMMAND_LENGTH * 0.8);
+    let commandValue = "";
+    $: remaining = MAX_COMMAND_LENGTH - commandValue.length;
+    $: showCounter = commandValue.length >= COUNTER_THRESHOLD;
+    $: counterColor =
+        remaining <= 10 ? "text-red-400" :
+        remaining <= 20 ? "text-yellow-400" :
+        "text-gray-500";
+
     let cleanClose = false;
     let virtualConsole: VirtualConsole;
     let reconnection: ReconnectionController;
@@ -156,25 +166,25 @@
     }
 
     function handleKeydown(e: KeyboardEvent) {
-        if (e.key === "Enter" && commandInput.value.trim() !== "") {
-            const commandText = commandInput.value.trim();
+        if (e.key === "Enter" && commandValue.trim() !== "") {
+            const commandText = commandValue.trim();
             sendCommand(commandText);
             commandHistory.unshift(commandText);
             if (commandHistory.length > 50) commandHistory.pop();
             localStorage.setItem(HISTORY_KEY, JSON.stringify(commandHistory));
             historyIndex = -1;
-            commandInput.value = "";
+            commandValue = "";
             e.preventDefault();
         } else if (e.key === "ArrowUp") {
             if (historyIndex < commandHistory.length - 1) {
                 historyIndex++;
-                commandInput.value = commandHistory[historyIndex];
+                commandValue = commandHistory[historyIndex];
             }
             e.preventDefault();
         } else if (e.key === "ArrowDown") {
             if (historyIndex >= 0) {
                 historyIndex--;
-                commandInput.value = historyIndex >= 0 ? commandHistory[historyIndex] : "";
+                commandValue = historyIndex >= 0 ? commandHistory[historyIndex] : "";
             }
             e.preventDefault();
         }
@@ -189,7 +199,10 @@
         <div class="flex items-center border-t border-gray-700 pt-3">
             <span class="{inactive ? 'text-gray-600' : 'text-green-400'} mr-2 shrink-0">&gt;</span>
             <!-- svelte-ignore a11y-autofocus -->
-            <input type="text" bind:this={commandInput} on:keydown={handleKeydown} class="w-full bg-transparent border-none focus:ring-0 focus:outline-none {inactive ? 'text-gray-600 placeholder-gray-600 cursor-not-allowed' : 'text-gray-200 placeholder-gray-500'}" placeholder="{inactive ? 'Session ended' : 'Enter command...'}" autocomplete="off" autofocus disabled>
+            <input type="text" bind:this={commandInput} bind:value={commandValue} maxlength={MAX_COMMAND_LENGTH} on:keydown={handleKeydown} class="w-full bg-transparent border-none focus:ring-0 focus:outline-none {inactive ? 'text-gray-600 placeholder-gray-600 cursor-not-allowed' : 'text-gray-200 placeholder-gray-500'}" placeholder="{inactive ? 'Session ended' : 'Enter command...'}" autocomplete="off" autofocus disabled>
+            {#if showCounter}
+                <span class="ml-2 text-xs font-mono tabular-nums shrink-0 {counterColor}">{remaining}</span>
+            {/if}
         </div>
     </div>
 </div>
