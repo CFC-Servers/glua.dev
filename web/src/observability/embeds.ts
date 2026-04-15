@@ -59,7 +59,7 @@ const code = (s: string): string => `\`${s}\``;
 const link = (text: string, url: string): string => `[${text}](${url})`;
 const sub = (s: string): string => `-# ${s}`;
 
-const truncate = (s: string, n: number): string => (s.length > n ? s.slice(0, n - 1) + "…" : s);
+const truncate = (s: string, n: number): string => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
 
 const ipLink = (ip: string): string => link(`\`${ip}\``, `https://ipinfo.io/${ip}`);
 
@@ -74,7 +74,7 @@ const ispLink = (ctx: RequestContext): string => {
   return "unknown network";
 };
 
-const ansi = (ansiCode: string, text: string): string => "```ansi\n\u001b[" + ansiCode + "m" + text + "\u001b[0m\n```";
+const ansi = (ansiCode: string, text: string): string => `\`\`\`ansi\n\u001b[${ansiCode}m${text}\u001b[0m\n\`\`\``;
 
 const duration = (ms: number): string => {
   const totalSec = Math.floor(ms / 1000);
@@ -151,7 +151,7 @@ export function buildSessionStartedEmbed(e: SessionStartedEvent): DiscordEmbed {
   if (ctx.userAgent) {
     fields.push({
       name: "User-Agent",
-      value: "```\n" + truncate(ctx.userAgent, LIMIT_UA_INLINE) + "\n```",
+      value: `\`\`\`\n${truncate(ctx.userAgent, LIMIT_UA_INLINE)}\n\`\`\``,
       inline: false,
     });
   }
@@ -217,7 +217,7 @@ export function buildErrorEmbed(e: ErrorEvent): DiscordEmbed {
   lines.push(`### ✖ ${truncate(e.where, 120)}`, ansi("2;31", msg));
 
   if (stack) {
-    lines.push("```ts\n" + truncate(stack, LIMIT_STACK) + "\n```");
+    lines.push(`\`\`\`ts\n${truncate(stack, LIMIT_STACK)}\n\`\`\``);
   }
 
   const ctxSub = contextSubtext(e.context);
@@ -245,7 +245,7 @@ export function buildQueueEnteredEmbed(e: QueueEnteredEvent): DiscordEmbed {
 
   const lines: string[] = [
     `### ${locationHeader(ctx)}`,
-    sub(`position ${code("#" + e.position)} · ${capacityLine(e.capacity, { skipQueue: true })}`),
+    sub(`position ${code(`#${e.position}`)} · ${capacityLine(e.capacity, { skipQueue: true })}`),
   ];
 
   const fields: DiscordEmbedField[] = [

@@ -264,7 +264,7 @@ export class BaseSession extends Container<Env> {
       this.startRetries++;
       console.warn(`[onStop] Container died during provisioning, retry ${this.startRetries}/3`);
       await new Promise((r) => setTimeout(r, 2000));
-      void this.startContainer(this.ctx.id.name!);
+      void this.startContainer(this.sessionId);
       return;
     }
     await this.closeSession("container_stopped");
@@ -280,7 +280,8 @@ export class BaseSession extends Container<Env> {
       this.broadcast({
         type: "SYSTEM_NOTICE",
         payload: {
-          message: "We just pushed an update to glua.dev. We can't hot-swap running sessions (yet), so yours had to be closed — sorry about that 🥀 Start a new one to pick up where you left off!",
+          message:
+            "We just pushed an update to glua.dev. We can't hot-swap running sessions (yet), so yours had to be closed — sorry about that 🥀 Start a new one to pick up where you left off!",
         },
       });
       await this.closeSession("deploy_rollout");
@@ -387,9 +388,12 @@ export class BaseSession extends Container<Env> {
   // ── Session timer ──
 
   private timerPayload() {
+    if (this.sessionEndTime === undefined || this.sessionDuration === undefined) {
+      throw new Error("timerPayload called before session became active");
+    }
     return {
-      endTime: this.sessionEndTime!,
-      duration: this.sessionDuration!,
+      endTime: this.sessionEndTime,
+      duration: this.sessionDuration,
       extensionThreshold: SESSION_TIMING.extensionThreshold,
     };
   }
@@ -480,7 +484,7 @@ export class BaseSession extends Container<Env> {
     await manager.fetch("http://do/api/session-closed", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ sessionId: this.ctx.id.name! }),
+      body: JSON.stringify({ sessionId: this.sessionId }),
     });
   }
 
@@ -514,8 +518,8 @@ export class BaseSession extends Container<Env> {
 
   private async flushLogsToR2() {
     if (this.logBuffer.length === 0) return;
-    const logKey = `sessions/${this.ctx.id.name!}/logs.log`;
-    const logsToFlush = this.logBuffer.join("\n") + "\n";
+    const logKey = `sessions/${this.sessionId}/logs.log`;
+    const logsToFlush = `${this.logBuffer.join("\n")}\n`;
     this.logBuffer = [];
 
     try {
@@ -523,7 +527,7 @@ export class BaseSession extends Container<Env> {
       const existingContent = existingLog ? await existingLog.text() : "";
       await this.env.LOG_BUCKET.put(logKey, existingContent + logsToFlush);
     } catch (e) {
-      console.error(`Failed to flush logs for ${this.ctx.id.name!}:`, e);
+      console.error(`Failed to flush logs for ${this.sessionId}:`, e);
       this.logBuffer.unshift(...logsToFlush.trim().split("\n"));
       this.notifyAsync(
         notify.error(this.env, {
@@ -541,7 +545,7 @@ export class BaseSession extends Container<Env> {
     const hasNewScripts = Object.keys(this.scriptBuffer).length > 0;
     if (!hasNewScripts && !this.sessionMetadata) return;
 
-    const sessionKey = `sessions/${this.ctx.id.name!}/session.json`;
+    const sessionKey = `sessions/${this.sessionId}/session.json`;
 
     try {
       const existing = await this.env.LOG_BUCKET.get(sessionKey);
@@ -559,7 +563,7 @@ export class BaseSession extends Container<Env> {
       await this.env.LOG_BUCKET.put(sessionKey, JSON.stringify(session));
       this.scriptBuffer = {};
     } catch (e) {
-      console.error(`Failed to flush session data for ${this.ctx.id.name!}:`, e);
+      console.error(`Failed to flush session data for ${this.sessionId}:`, e);
       this.notifyAsync(
         notify.error(this.env, {
           where: "flushSessionToR2",
@@ -588,6 +592,12 @@ export class BaseSession extends Container<Env> {
 
   private notifyAsync(promise: Promise<unknown>): void {
     this.ctx.waitUntil(promise);
+  }
+
+  private get sessionId(): string {
+    const name = this.ctx.id.name;
+    if (!name) throw new Error("Session DO constructed without idFromName");
+    return name;
   }
 
   private send(ws: WebSocket, message: ServerMessage): void {

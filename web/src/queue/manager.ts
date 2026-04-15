@@ -7,10 +7,10 @@ import { type CapacitySnapshot, notify, OBS_CONTEXT_HEADER, parseContext } from 
 import { hashIP } from "../utils";
 import {
   QUEUE_PREFIX,
-  RESOLVED_PREFIX,
-  SESSION_PREFIX,
   queueKey,
+  RESOLVED_PREFIX,
   resolvedKey,
+  SESSION_PREFIX,
   sessionKey,
   stripResolvedPrefix,
   stripSessionPrefix,
@@ -181,7 +181,8 @@ export class SessionManager extends DurableObject<Env> {
       this.notifyAsync(
         notify.warning(this.env, {
           title: "Missing CF-Connecting-IP",
-          description: "A request reached SessionManager without a CF-Connecting-IP header — per-IP rate limiting is disabled for this session",
+          description:
+            "A request reached SessionManager without a CF-Connecting-IP header — per-IP rate limiting is disabled for this session",
           context: parseContext(request.headers.get(OBS_CONTEXT_HEADER)),
         }),
       );
@@ -232,11 +233,11 @@ export class SessionManager extends DurableObject<Env> {
     const ticketId = url.searchParams.get("ticketId");
     if (!ticketId) return new Response("Missing ticketId", { status: 400 });
 
-    if (this.resolvedTickets.has(ticketId)) {
-      const { sessionId, sessionType } = this.resolvedTickets.get(ticketId)!;
+    const resolved = this.resolvedTickets.get(ticketId);
+    if (resolved) {
       this.resolvedTickets.delete(ticketId);
       void this.ctx.storage.delete(resolvedKey(ticketId));
-      return Response.json({ status: "READY", sessionId, sessionType });
+      return Response.json({ status: "READY", sessionId: resolved.sessionId, sessionType: resolved.sessionType });
     }
 
     const entry = this.waitingQueue.find((p) => p.ticketId === ticketId);
