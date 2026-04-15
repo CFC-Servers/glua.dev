@@ -49,6 +49,7 @@ export class SessionManager extends DurableObject<Env> {
           createdAt: value.createdAt ?? 0,
         });
       }
+      this.pruneStaleSessions();
 
       const now = Date.now();
       const expiredKeys: string[] = [];
@@ -164,6 +165,8 @@ export class SessionManager extends DurableObject<Env> {
     if (request.method !== "POST") {
       return new Response("Method not allowed", { status: 405 });
     }
+
+    this.pruneStaleSessions();
 
     const sessionType = (url.searchParams.get("type") || "public") as SessionType;
     if (!VALID_SESSION_TYPES.includes(sessionType)) {
