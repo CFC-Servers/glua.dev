@@ -133,6 +133,15 @@ runs:
       shell: bash
       run: docker logout ghcr.io
 
+    - name: Set up Node
+      uses: actions/setup-node@v4
+      with:
+        node-version-file: ${{ inputs.path }}/web/.nvmrc
+        cache: npm
+        cache-dependency-path: |
+          ${{ inputs.path }}/web/package-lock.json
+          ${{ inputs.path }}/web/frontend/package-lock.json
+
     - name: Push to Cloudflare Container Registry
       shell: bash
       env:
@@ -165,6 +174,7 @@ runs:
         CLOUDFLARE_ACCOUNT_ID: ${{ inputs.cloudflare_account_id }}
       run: |
         cd ${{ inputs.path }}/web
-        npm i
+        npm ci
+        npm ci --prefix frontend
         npm run build
         npx wrangler deploy
