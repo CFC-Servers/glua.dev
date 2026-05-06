@@ -65,6 +65,23 @@ select {
 #status-panel .toggle-icon { transition: transform 0.3s ease; }
 #status-panel.collapsed .toggle-icon { transform: rotate(180deg); }
 
+/* Mobile: expanded panel-content overlays the console instead of pushing it down.
+   Anchored to #status-panel's inner wrapper, positioned just below the minimized bar. */
+@media (max-width: 767px) {
+  #status-panel > div {
+    position: relative;
+  }
+  #status-panel .panel-content {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    background-color: #1f2937;
+    border-bottom: 1px solid rgba(55, 65, 81, 0.5);
+    box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.3), 0 4px 6px -4px rgb(0 0 0 / 0.3);
+  }
+}
+
 #editor-panel {
   height: 100%;
   overflow: hidden;
@@ -91,6 +108,16 @@ select {
 }
 #editor-toggle-button:hover {
   background-color: #4f46e5;
+}
+
+/* On mobile the middle-right position overlaps the full-screen editor and the top status bar.
+   Move it to a thumb-friendly bottom-right. */
+@media (max-width: 767px) {
+  #editor-toggle-button {
+    top: auto;
+    bottom: 1rem;
+    transform: none;
+  }
 }
 
 #resizer {

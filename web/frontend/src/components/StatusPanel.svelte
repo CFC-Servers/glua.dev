@@ -1,6 +1,6 @@
 <script lang="ts">
     import { createEventDispatcher } from "svelte";
-    import { sessionState, sessionMetadata, sessionTimer } from "../lib/stores";
+    import { sessionState, sessionMetadata, sessionTimeRemaining } from "../lib/stores";
     import { healthData } from "../lib/socket";
     import { formatTime } from "../lib/format";
     import { DISCORD_URL } from "../lib/links";
@@ -12,14 +12,20 @@
 
     export let socket: WebSocket | null;
 
-    let collapsed = false;
+    // Default to collapsed on mobile so the panel reads as a slim top bar; desktop keeps the
+    // floating card expanded by default.
+    let collapsed = window.matchMedia("(max-width: 767px)").matches;
     let sessionDuration = "";
 
     $: if ($sessionState === "closed" || $sessionState === "readonly") {
         computeDuration();
+        // Auto-expand when the session ends so the final metadata and New Session button
+        // are immediately visible on mobile without requiring a tap.
+        collapsed = false;
     }
 
     $: inactive = $sessionState === "closed" || $sessionState === "readonly";
+    $: minTimeRemaining = $sessionTimeRemaining > 0 ? formatTime($sessionTimeRemaining) : "—:—";
 
     function computeDuration() {
         const meta = $sessionMetadata;
@@ -29,9 +35,21 @@
     }
 </script>
 
-<div id="status-panel" class="absolute top-4 right-4 z-20 w-72" class:collapsed>
-    <div class="bg-gray-800 rounded-lg shadow-lg border border-gray-700/50">
-        <div class="w-full flex justify-between items-center p-3">
+<div id="status-panel" class="z-20 md:absolute md:top-4 md:right-4 md:w-72 relative w-full" class:collapsed>
+    <div class="bg-gray-800 md:rounded-lg md:shadow-lg md:border border-b border-gray-700/50">
+        <button
+            type="button"
+            on:click={() => collapsed = !collapsed}
+            class="md:hidden flex w-full items-center justify-between px-4 py-2.5 focus:outline-none"
+            aria-expanded={!collapsed}
+            aria-label="Toggle session status"
+        >
+            <span class="text-xs font-mono {inactive ? 'text-gray-400' : 'text-indigo-300'}">
+                {inactive ? "Session Ended" : `⏱ ${minTimeRemaining}`}
+            </span>
+            <svg class="toggle-icon w-5 h-5 text-gray-400" class:rotate-180={collapsed} xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" /></svg>
+        </button>
+        <div class="hidden md:flex w-full justify-between items-center p-3">
             <button on:click={() => collapsed = !collapsed} class="flex-1 flex justify-between items-center text-left focus:outline-none pr-2">
                 <span class="font-bold text-sm {inactive ? 'text-gray-400' : 'text-white'}">{inactive ? "Session Ended" : "Session Status"}</span>
             </button>

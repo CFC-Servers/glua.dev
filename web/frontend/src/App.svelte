@@ -20,15 +20,24 @@
   const EDITOR_OPEN_KEY = "glua-editor-open";
 
   function updatePanelWidths() {
-    if (consolePanel && !resizing) {
-      if ($isEditorOpen) {
-        const savedWidth = localStorage.getItem(EDITOR_WIDTH_KEY) || "33%";
-        const consoleWidth = `calc(100% - ${savedWidth})`;
-        consolePanel.style.width = consoleWidth;
-        if (editorPanel) editorPanel.style.width = savedWidth;
-      } else {
-        consolePanel.style.width = "100%";
-      }
+    if (!consolePanel || resizing) return;
+
+    // On mobile, the layout is handled entirely by Tailwind responsive classes.
+    // Clear any inline widths so the CSS can take over when crossing the breakpoint.
+    const isDesktop = window.matchMedia("(min-width: 768px)").matches;
+    if (!isDesktop) {
+      consolePanel.style.width = "";
+      if (editorPanel) editorPanel.style.width = "";
+      return;
+    }
+
+    if ($isEditorOpen) {
+      const savedWidth = localStorage.getItem(EDITOR_WIDTH_KEY) || "33%";
+      const consoleWidth = `calc(100% - ${savedWidth})`;
+      consolePanel.style.width = consoleWidth;
+      if (editorPanel) editorPanel.style.width = savedWidth;
+    } else {
+      consolePanel.style.width = "100%";
     }
   }
 
@@ -49,8 +58,13 @@
         isEditorOpen.update((open) => !open);
       }
     };
+    const handleResize = () => updatePanelWidths();
     window.addEventListener("keydown", handleKeydown);
-    return () => window.removeEventListener("keydown", handleKeydown);
+    window.addEventListener("resize", handleResize);
+    return () => {
+      window.removeEventListener("keydown", handleKeydown);
+      window.removeEventListener("resize", handleResize);
+    };
   });
 
   afterUpdate(() => {
@@ -136,7 +150,7 @@
 </script>
 
 <ScriptViewer />
-<main class="flex flex-row h-screen overflow-hidden">
+<main class="flex flex-row h-dvh overflow-hidden relative">
   {#if view === "ip-limited"}
     <IPLimited limit={ipLimit} />
   {:else if view === "modal"}
@@ -172,8 +186,8 @@
     </div>
     {#if $isEditorOpen}
       <!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
-      <div id="resizer" on:mousedown={handleMouseDown} role="separator" aria-orientation="vertical"></div>
-      <div bind:this={editorPanel} class="h-full" style="width: 33%;">
+      <div id="resizer" class="hidden md:block" on:mousedown={handleMouseDown} role="separator" aria-orientation="vertical"></div>
+      <div bind:this={editorPanel} class="h-full absolute inset-0 z-30 md:relative md:inset-auto md:z-auto">
         <Editor {socket} />
       </div>
     {/if}
