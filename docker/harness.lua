@@ -9,7 +9,7 @@ local Harness = {
     dataDir = "gluadev",
 
     --- Script names that have already been seen and executed
-    --- (This is poopy but will be fine for now)
+    --- (Backed by data/gluadev/seen.txt so map-change Lua reloads don't wipe it)
     seenScripts = {},
 
     debug = true,
@@ -70,13 +70,27 @@ do
     local os_time = os.time
     local file_Find = file.Find
     local file_Write = file.Write
+    local file_Append = file.Append
+    local file_Read = file.Read
     local timer_Create = timer.Create
     local timer_Simple = timer.Simple
     local ProtectedCall = ProtectedCall
+    local string_gmatch = string.gmatch
 
     local dataDir = Harness.dataDir
     local scriptDir = Harness.scriptDir
     local seenScripts = Harness.seenScripts
+    local seenFile = dataDir .. "/seen.txt"
+
+    --- Rehydrates seenScripts from disk — a map change re-runs
+    --- autorun/harness.lua, and without this every prior script re-executes
+    local function loadSeen()
+        local content = file_Read( seenFile, "DATA" )
+        if not content then return end
+        for name in string_gmatch( content, "[^\n]+" ) do
+            seenScripts[name] = true
+        end
+    end
 
     --- Logs and executes the given file
     --- @param filename string The filename within scriptDir to process
@@ -84,6 +98,7 @@ do
         if seenScripts[filename] then return end
 
         seenScripts[filename] = true
+        file_Append( seenFile, filename .. "\n" )
         logger:Info( "Executing: ", logger.colors.lime, filename )
 
         -- Load and execute the script
@@ -93,6 +108,8 @@ do
 
     --- Creates the timer that watches for new script creation
     function Harness.CreateScriptWatcher()
+        loadSeen()
+
         local findString = scriptDir .. "/*.lua"
 
         local function tick()

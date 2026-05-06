@@ -25,7 +25,7 @@ echo "logfile flush 0" > "$home/.screenrc"
 
 base_srcds_args=(
     # Test requirements
-    -systemtest       # Allows us to exit the game from inside Lua
+    -allowquit        # Allows us to exit the game from inside Lua
     #-condebug         # Logs everything to console.log
     #-debug            # On crashes generate a debug.log allowing for better debugging.
     -norestart        # If we crash, do not restart.
