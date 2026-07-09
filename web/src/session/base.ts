@@ -307,7 +307,10 @@ export class BaseSession extends Container<Env> {
     try {
       const message = JSON.parse(msg.data as string) as AgentMessage;
       switch (message.type) {
-        case "LOG": {
+        // HISTORY_DUMP is the container's pre-connect console backlog, sent once on connect
+        // It's the only source of the server's boot logs (the agent's tail only follows lines written after it attaches), so we treat it exactly like live output
+        case "LOG":
+        case "HISTORY_DUMP": {
           const lines = Array.isArray(message.payload) ? message.payload : [String(message.payload)];
           this.logBuffer.push(...lines);
           this.logLineCount += lines.length;
