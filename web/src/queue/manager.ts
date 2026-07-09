@@ -249,28 +249,42 @@ export class SessionManager extends DurableObject<Env> {
   }
 
   /**
-   * Called by a session DO over RPC when its session ends, freeing the slot and promoting the next waiter
+   * Called by a session DO over RPC when its session ends, freeing the slot and promoting whoever we can
    * RPC rather than a routed endpoint so it's unreachable from the edge: there's no URL to spoof and no request body to validate
    */
   async sessionClosed(sessionId: string): Promise<void> {
-    const closedEntry = this.activeSessions.get(sessionId);
     await this.removeSession(sessionId);
+    await this.drainQueue();
+  }
 
-    if (closedEntry) {
-      const idx = this.waitingQueue.findIndex((w) => w.sessionType === closedEntry.type);
-      if (idx !== -1) {
-        const nextInLine = this.waitingQueue.splice(idx, 1)[0];
-        const newSessionId = crypto.randomUUID();
-        await this.persistSession(newSessionId, nextInLine.sessionType, nextInLine.ip);
-        const resolved: ResolvedTicket = {
-          sessionId: newSessionId,
-          sessionType: nextInLine.sessionType,
-          createdAt: Date.now(),
-        };
-        this.resolvedTickets.set(nextInLine.ticketId, resolved);
-        await this.ctx.storage.put(resolvedKey(nextInLine.ticketId), resolved);
-        await this.ctx.storage.delete(queueKey(nextInLine.ticketId));
+  /**
+   * Promotes waiting tickets into freed capacity, oldest-first, across all branches
+   *
+   * A close often frees a slot for a branch other than the one that closed (total capacity is the usual bottleneck, not per-branch), so we can't just match the closed session's type
+   * Each promotion bumps the active counts, so the next hasCapacity check sees the updated numbers and we never over-allocate
+   * We skip (rather than stop at) a waiter whose branch is currently full so a full branch at the head of the queue doesn't block a waiter behind it whose branch has room
+   */
+  private async drainQueue(): Promise<void> {
+    let i = 0;
+    while (i < this.waitingQueue.length) {
+      const entry = this.waitingQueue[i];
+      if (!this.hasCapacity(entry.sessionType)) {
+        i++;
+        continue;
       }
+
+      this.waitingQueue.splice(i, 1);
+      const newSessionId = crypto.randomUUID();
+      await this.persistSession(newSessionId, entry.sessionType, entry.ip);
+      const resolved: ResolvedTicket = {
+        sessionId: newSessionId,
+        sessionType: entry.sessionType,
+        createdAt: Date.now(),
+      };
+      this.resolvedTickets.set(entry.ticketId, resolved);
+      await this.ctx.storage.put(resolvedKey(entry.ticketId), resolved);
+      await this.ctx.storage.delete(queueKey(entry.ticketId));
+      // Don't advance i: splice shifted the next entry down into this slot
     }
   }
 
@@ -392,6 +406,13 @@ export class SessionManager extends DurableObject<Env> {
 
     if (expiredKeys.length > 0) {
       await this.ctx.storage.delete(expiredKeys);
+    }
+
+    // Self-heal: a lost close notification (e.g. a session DO that crashed before its sessionClosed RPC landed)
+    // can free capacity without triggering a drain, stranding waiters behind idle slots
+    // drainQueue re-checks capacity (which prunes stale sessions) and promotes anyone it can
+    if (this.waitingQueue.length > 0) {
+      await this.drainQueue();
     }
 
     if (this.waitingQueue.length > 0 || this.resolvedTickets.size > 0) {
