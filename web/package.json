@@ -23,7 +23,7 @@
 		"@biomejs/biome": "^2.4.11",
 		"@cloudflare/workers-types": "^4.20250620.0",
 		"typescript": "^7.0.2",
-		"wrangler": "^4.80.0"
+		"wrangler": "^4.110.0"
 	},
 	"dependencies": {
 		"@cloudflare/containers": "^0.0.13"
