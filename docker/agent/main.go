@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"regexp"
 	"log"
+	"net/http"
 	"net/url"
 	"os"
 	"os/exec"
@@ -198,8 +199,14 @@ func connectToWorker(ctx context.Context) (*websocket.Conn, error) {
 	q.Set("type", versionString)
 	u.RawQuery = q.Encode()
 
+	// Prove to the worker that we're the container it started, not a browser that guessed the session ID
+	header := http.Header{}
+	if token := os.Getenv("AGENT_TOKEN"); token != "" {
+		header.Set("X-Agent-Token", token)
+	}
+
 	log.Printf("Connecting to %s", u.String())
-	c, _, err := websocket.DefaultDialer.DialContext(ctx, u.String(), nil)
+	c, _, err := websocket.DefaultDialer.DialContext(ctx, u.String(), header)
 	return c, err
 }
 

@@ -1,7 +1,7 @@
 import { Container } from "@cloudflare/containers";
 import type { AgentMessage, ClientMessage, ScriptEntry, ServerMessage, SessionMetadata } from "@glua/shared";
 import { MAX_SCRIPT_SIZE, MAX_SCRIPTS_PER_SESSION } from "@glua/shared";
-import { SESSION_TIMING } from "../constants";
+import { AGENT_TOKEN_HEADER, SESSION_TIMING } from "../constants";
 import type { Env } from "../env";
 import {
   type CapacitySnapshot,
@@ -40,6 +40,9 @@ export class BaseSession extends Container<Env> {
   private sessionDuration?: number;
   private extensionGranted = false;
   private startRetries = 0;
+  // Per-session secret minted when we start the container and handed to it via envVars
+  // The agent echoes it on the /ws/agent handshake so a browser that knows the session UUID still can't impersonate the container
+  private agentToken?: string;
   private lastExitCode?: number;
   private lastExitReason?: string;
 
@@ -88,6 +91,10 @@ export class BaseSession extends Container<Env> {
     const sessionId = url.searchParams.get("session");
     if (!sessionId) {
       return new Response("WebSocket request missing session ID.", { status: 400 });
+    }
+
+    if (url.pathname === "/ws/agent" && !this.isValidAgentToken(request)) {
+      return new Response("Forbidden", { status: 403 });
     }
 
     if (url.pathname === "/ws/browser" && this.sessionState === "NEW") {
@@ -253,11 +260,13 @@ export class BaseSession extends Container<Env> {
   // ── Container lifecycle ──
 
   private async startContainer(sessionId: string) {
+    this.agentToken = crypto.randomUUID();
     try {
       await this.start({
         envVars: {
           SESSION_ID: sessionId,
           WORKER_URL: "https://glua.dev",
+          AGENT_TOKEN: this.agentToken,
         },
       });
     } catch (e) {
@@ -648,6 +657,17 @@ export class BaseSession extends Container<Env> {
 
   private notifyAsync(promise: Promise<unknown>): void {
     this.ctx.waitUntil(promise);
+  }
+
+  // Constant-time comparison against the token we minted for this session's container
+  // Rejects when no container has been started (token unset), e.g. a stray /ws/agent to a fresh or evicted DO
+  private isValidAgentToken(request: Request): boolean {
+    const presented = request.headers.get(AGENT_TOKEN_HEADER);
+    if (!this.agentToken || !presented) return false;
+    const a = new TextEncoder().encode(presented);
+    const b = new TextEncoder().encode(this.agentToken);
+    if (a.byteLength !== b.byteLength) return false;
+    return crypto.subtle.timingSafeEqual(a, b);
   }
 
   private get sessionId(): string {

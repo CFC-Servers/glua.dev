@@ -1,5 +1,8 @@
 // Shared constants (session types, limits) live in @glua/shared
 
+/** Header the container agent uses to prove it owns the session on the /ws/agent handshake */
+export const AGENT_TOKEN_HEADER = "X-Agent-Token";
+
 export const SESSION_TIMING = {
   /** How long a fresh session lasts */
   duration: 10 * 60_000,
