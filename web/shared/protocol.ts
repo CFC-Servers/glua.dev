@@ -1,10 +1,9 @@
 // WebSocket message protocol for glua.dev
-// The same types are imported on both sides, so adding a new message variant
-// is a single-file change that the compiler enforces everywhere
+// The same types are imported on both sides, so adding a new message variant is a single-file change that the compiler enforces everywhere
 
 /** Anything the server pushes down a browser's WebSocket */
 export type ServerMessage =
-  // Raw output lines from the game console — ANSI-coded, rendered as-is
+  // Raw output lines from the game console, ANSI-coded and rendered as-is
   | { type: "LOGS"; payload: string[] }
   // Full replay of prior output, sent once when a browser (re)connects
   | { type: "HISTORY"; payload: string }
@@ -12,12 +11,11 @@ export type ServerMessage =
   // Starts or updates the session countdown bar
   | { type: "SESSION_TIMER"; payload: SessionTimerPayload }
   | { type: "SESSION_CLOSED" }
-  // An out-of-band message from glua.dev itself (deploy notices, ops broadcasts)
-  // rendered as a styled card rather than a raw log line
+  // An out-of-band message from glua.dev itself (deploy notices, ops broadcasts), rendered as a styled card rather than a raw log line
   | { type: "SYSTEM_NOTICE"; payload: { message: string } }
   // Branch/version info the agent reports on boot
   | { type: "CONTEXT_UPDATE"; payload: SessionMetadata }
-  // A script the user just ran — surfaced inline in the console as a clickable link
+  // A script the user just ran, surfaced inline in the console as a clickable link
   | { type: "SCRIPT_EXECUTED"; payload: ScriptExecutedPayload }
   | { type: "SCRIPT_HISTORY"; payload: Record<string, ScriptEntry> };
 

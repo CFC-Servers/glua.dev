@@ -19,8 +19,7 @@ export function extractRequestContext(request: Request): RequestContext {
   };
 }
 
-// DO stub fetches strip `request.cf`, so we carry the extracted context
-// from the worker entrypoint into the DO via this header.
+// DO stub fetches strip `request.cf`, so we carry the extracted context from the worker entrypoint into the DO via this header
 export function serializeContext(ctx: RequestContext): string {
   return encodeURIComponent(JSON.stringify(ctx));
 }

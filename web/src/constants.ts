@@ -3,7 +3,7 @@
 export const SESSION_TIMING = {
   /** How long a fresh session lasts */
   duration: 10 * 60_000,
-  /** Absolute ceiling — extensions can't push past this */
+  /** Absolute ceiling, extensions can't push past this */
   hardLimit: 15 * 60_000,
   /** Time added when a user requests an extension */
   extension: 5 * 60_000,

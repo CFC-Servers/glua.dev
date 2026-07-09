@@ -4,7 +4,7 @@ import { MAX_SESSIONS_PER_IP, VALID_SESSION_TYPES } from "@glua/shared";
 import { CAPACITY, QUEUE_TIMING, SESSION_TIMING } from "../constants";
 import type { Env } from "../env";
 import { type CapacitySnapshot, notify, OBS_CONTEXT_HEADER, parseContext } from "../observability";
-import { hashIP } from "../utils";
+import { hashIP, readSessionLogs } from "../utils";
 import {
   QUEUE_PREFIX,
   queueKey,
@@ -22,11 +22,10 @@ const STALE_SESSION_CUTOFF = SESSION_TIMING.hardLimit + 60_000;
 /**
  * Global singleton that manages session allocation and the waiting queue
  *
- * When a user requests a session, this DO either allocates one immediately
- * (if capacity allows) or puts them in a FIFO queue. When a session closes,
- * the next person in line gets promoted.
+ * When a user requests a session, this DO either allocates one immediately (if capacity allows) or puts them in a FIFO queue
+ * When a session closes, the next person in line gets promoted
  *
- * Keyed as `idFromName("global-queue")` — there's exactly one of these
+ * Keyed as `idFromName("global-queue")`, there's exactly one of these
  */
 export class SessionManager extends DurableObject<Env> {
   private activeSessions: Map<string, ActiveSession>;
@@ -93,8 +92,6 @@ export class SessionManager extends DurableObject<Env> {
         return this.handleRequestSession(request, url);
       case "/api/queue-status":
         return this.handleQueueStatus(url);
-      case "/api/session-closed":
-        return this.handleSessionClosed(request);
       case "/api/session-status":
         return this.handleSessionStatus(url);
       case "/api/broadcast":
@@ -175,9 +172,8 @@ export class SessionManager extends DurableObject<Env> {
 
     const rawIP = request.headers.get("CF-Connecting-IP");
     if (!rawIP) {
-      // CF always populates this header in production — getting here means
-      // either an unusual proxy setup or a Cloudflare bug. Either way it
-      // breaks our per-IP rate limiting, so we want to know about it
+      // CF always populates this header in production, so getting here means an unusual proxy setup or a Cloudflare bug
+      // Either way it breaks our per-IP rate limiting, so we want to know about it
       this.notifyAsync(
         notify.warning(this.env, {
           title: "Missing CF-Connecting-IP",
@@ -252,8 +248,11 @@ export class SessionManager extends DurableObject<Env> {
     return Response.json({ status: "QUEUED", position });
   }
 
-  private async handleSessionClosed(request: Request): Promise<Response> {
-    const { sessionId } = await request.json<{ sessionId: string }>();
+  /**
+   * Called by a session DO over RPC when its session ends, freeing the slot and promoting the next waiter
+   * RPC rather than a routed endpoint so it's unreachable from the edge: there's no URL to spoof and no request body to validate
+   */
+  async sessionClosed(sessionId: string): Promise<void> {
     const closedEntry = this.activeSessions.get(sessionId);
     await this.removeSession(sessionId);
 
@@ -273,8 +272,6 @@ export class SessionManager extends DurableObject<Env> {
         await this.ctx.storage.delete(queueKey(nextInLine.ticketId));
       }
     }
-
-    return new Response("Session closed and slot freed.", { status: 200 });
   }
 
   private async handleSessionStatus(url: URL): Promise<Response> {
@@ -290,15 +287,13 @@ export class SessionManager extends DurableObject<Env> {
       return Response.json({ status: "active", sessionType: active.type });
     }
 
-    const logKey = `sessions/${sessionId}/logs.log`;
-    const logObject = await this.env.LOG_BUCKET.get(logKey);
-    if (!logObject) {
+    const logs = await readSessionLogs(this.env.LOG_BUCKET, sessionId);
+    const sessionKey = `sessions/${sessionId}/session.json`;
+    const sessionObject = await this.env.LOG_BUCKET.get(sessionKey);
+    if (logs.length === 0 && !sessionObject) {
       return Response.json({ status: "not-found" }, { status: 404 });
     }
 
-    const logs = await logObject.text();
-    const sessionKey = `sessions/${sessionId}/session.json`;
-    const sessionObject = await this.env.LOG_BUCKET.get(sessionKey);
     const sessionData = sessionObject ? JSON.parse(await sessionObject.text()) : {};
     return Response.json({
       status: "ended",

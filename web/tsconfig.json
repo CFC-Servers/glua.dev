@@ -5,6 +5,7 @@
     "moduleResolution": "bundler",
     "lib": ["esnext"],
     "strict": true,
+    "skipLibCheck": true,
     "types": [
       "@cloudflare/workers-types"
     ],

@@ -11,6 +11,7 @@ import {
   parseContext,
   type RequestContext,
 } from "../observability";
+import { readSessionLogs } from "../utils";
 import { CLOSED_FLAG } from "./storage-keys";
 import type { SessionState } from "./types";
 
@@ -19,9 +20,8 @@ import type { SessionState } from "./types";
  *
  * Lifecycle: NEW → PROVISIONING → ACTIVE → CLOSED
  *
- * Each session gets its own Durable Object (keyed by UUID via idFromName).
- * The DO owns the container, relays messages between browser(s) and the
- * container's agent process, and flushes logs/scripts to R2 periodically.
+ * Each session gets its own Durable Object (keyed by UUID via idFromName)
+ * The DO owns the container, relays messages between browser(s) and the container's agent process, and flushes logs/scripts to R2 periodically
  *
  * Subclasses only override `branch` to select which GMod build to run
  */
@@ -43,11 +43,11 @@ export class BaseSession extends Container<Env> {
   private lastExitCode?: number;
   private lastExitReason?: string;
 
-  // Best-effort geo context — lost on DO eviction, which is fine
+  // Best-effort geo context, lost on DO eviction, which is fine
   // Worst case the end-session embed is missing location info
   protected obsContext?: RequestContext;
 
-  constructor(ctx: DurableObjectState, env: Env) {
+  constructor(ctx: Container<Env>["ctx"], env: Env) {
     super(ctx, env, {
       sleepAfter: "5m",
       defaultPort: 8080,
@@ -125,6 +125,11 @@ export class BaseSession extends Container<Env> {
   private handleAgentConnection(ws: WebSocket) {
     ws.accept();
 
+    if (this.sessionState === "CLOSED") {
+      ws.close(1000, "Session closed.");
+      return;
+    }
+
     if (this.containerSocket || this.sessionState !== "PROVISIONING") {
       const warnMsg = `Agent connection in unexpected state: ${this.sessionState}, containerSocket=${!!this.containerSocket}`;
       console.warn(warnMsg);
@@ -148,7 +153,8 @@ export class BaseSession extends Container<Env> {
     this.broadcast({ type: "LOGS", payload: ["\u001b[32mAgent connected. Session is live.\u001b[0m"] });
 
     this.renewActivityTimeout();
-    this.scheduleNextAlarm();
+    this.scheduleTick();
+    this.scheduleExpiryCheck(this.sessionEndTime);
 
     ws.addEventListener("message", this.onAgentMessage);
     ws.addEventListener("close", () => this.closeSession("agent_ws_close"));
@@ -191,12 +197,7 @@ export class BaseSession extends Container<Env> {
 
   private async restoreHistory(ws: WebSocket, sessionId: string) {
     try {
-      const logKey = `sessions/${sessionId}/logs.log`;
-      const existingLogs = await this.env.LOG_BUCKET.get(logKey);
-      let fullLogContent = "";
-      if (existingLogs) {
-        fullLogContent += await existingLogs.text();
-      }
+      let fullLogContent = await readSessionLogs(this.env.LOG_BUCKET, sessionId);
       if (this.logBuffer.length > 0) {
         if (fullLogContent.length > 0 && !fullLogContent.endsWith("\n")) {
           fullLogContent += "\n";
@@ -414,7 +415,7 @@ export class BaseSession extends Container<Env> {
     this.sessionDuration = newDuration;
     this.sessionEndTime = newEndTime;
     this.broadcast({ type: "SESSION_TIMER", payload: this.timerPayload() });
-    this.scheduleNextAlarm();
+    // The pending checkSessionExpiry fires at the old deadline, sees time remaining, and re-arms for the new one
   }
 
   // ── Session shutdown ──
@@ -481,54 +482,80 @@ export class BaseSession extends Container<Env> {
 
   private async notifyQueueManagerOfClosure() {
     const manager = this.env.SESSION_MANAGER.get(this.env.SESSION_MANAGER.idFromName("global-queue"));
-    await manager.fetch("http://do/api/session-closed", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ sessionId: this.sessionId }),
-    });
+    await manager.sessionClosed(this.sessionId);
   }
 
-  // ── Alarm (periodic flush + timeout check) ──
+  // ── Scheduled callbacks (periodic flush + timeout check) ──
+  //
+  // These run through the Container class's schedule() API rather than a raw alarm() override
+  // The Container class owns the DO's single alarm slot: it uses it to enforce sleepAfter, sync container exit events, and clean up after itself
+  // Overriding alarm(), or colliding with its scheduleNextAlarm method, breaks all of that and leaves every session DO waking on a leaked alarm forever
 
-  async alarm() {
+  /**
+   * Heartbeat while the session is live: flushes buffers to R2 and keeps the container's activity timeout renewed
+   * Re-schedules itself until the session closes
+   */
+  async activityTick() {
+    if (this.sessionState !== "ACTIVE") return;
+
     try {
       await this.flushLogsToR2();
       await this.flushSessionToR2();
     } catch (e) {
-      console.error("[alarm] flush error:", e);
+      console.error("[activityTick] flush error:", e);
     }
 
-    if (this.sessionState === "ACTIVE") {
-      if (this.sessionEndTime && Date.now() >= this.sessionEndTime) {
-        await this.closeSession("timer_expired");
-        return;
-      }
-      this.renewActivityTimeout();
-      this.scheduleNextAlarm();
-    }
+    this.renewActivityTimeout();
+    this.scheduleTick();
   }
 
-  private scheduleNextAlarm() {
-    const nextPing = Date.now() + SESSION_TIMING.activityPing;
-    const target = this.sessionEndTime ? Math.min(nextPing, this.sessionEndTime) : nextPing;
-    this.ctx.storage.setAlarm(target);
+  /**
+   * Fires at the session deadline
+   * Extensions move sessionEndTime after this is scheduled, so waking up early just means re-arming for the new deadline
+   * Also reaps orphans: if the DO was restarted mid-session, sessionEndTime is gone and we close rather than let the container linger
+   */
+  async checkSessionExpiry() {
+    if (this.sessionState === "CLOSED") return;
+
+    // schedule() has one-second granularity, so this can fire up to ~1s before the deadline
+    // Close rather than re-arm for a sub-second gap
+    if (this.sessionEndTime === undefined || Date.now() >= this.sessionEndTime - 1000) {
+      await this.closeSession("timer_expired");
+      return;
+    }
+
+    this.scheduleExpiryCheck(this.sessionEndTime);
+  }
+
+  private scheduleTick(): void {
+    this.schedule(SESSION_TIMING.activityPing / 1000, "activityTick").catch((e) =>
+      console.error("Failed to schedule activityTick:", e),
+    );
+  }
+
+  private scheduleExpiryCheck(endTime: number): void {
+    this.schedule(new Date(endTime), "checkSessionExpiry").catch((e) =>
+      console.error("Failed to schedule expiry check:", e),
+    );
   }
 
   // ── R2 persistence ──
 
   private async flushLogsToR2() {
     if (this.logBuffer.length === 0) return;
-    const logKey = `sessions/${this.sessionId}/logs.log`;
-    const logsToFlush = `${this.logBuffer.join("\n")}\n`;
+    const lines = this.logBuffer;
     this.logBuffer = [];
 
+    // Each flush writes its own chunk object because R2 can't append
+    // Read-modify-writing one big log re-copied the whole thing every 30s and could drop lines when two flushes overlapped
+    // Millisecond timestamps keep chunk keys in chronological sort order
+    const chunkKey = `sessions/${this.sessionId}/logs/${Date.now()}.log`;
+
     try {
-      const existingLog = await this.env.LOG_BUCKET.get(logKey);
-      const existingContent = existingLog ? await existingLog.text() : "";
-      await this.env.LOG_BUCKET.put(logKey, existingContent + logsToFlush);
+      await this.env.LOG_BUCKET.put(chunkKey, `${lines.join("\n")}\n`);
     } catch (e) {
       console.error(`Failed to flush logs for ${this.sessionId}:`, e);
-      this.logBuffer.unshift(...logsToFlush.trim().split("\n"));
+      this.logBuffer.unshift(...lines);
       this.notifyAsync(
         notify.error(this.env, {
           where: "flushLogsToR2",

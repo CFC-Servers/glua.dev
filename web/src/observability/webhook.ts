@@ -2,8 +2,8 @@ import type { DiscordWebhookPayload } from "./embeds";
 
 const WEBHOOK_TIMEOUT_MS = 3000;
 
-// Fire-and-forget. No-op when the secret is unset. Never throws —
-// observability must not be able to break the request path.
+// Fire-and-forget: no-op when the secret is unset, never throws
+// Observability must not be able to break the request path
 export async function post(env: { DISCORD_WEBHOOK_URL?: string }, payload: DiscordWebhookPayload): Promise<void> {
   const url = env.DISCORD_WEBHOOK_URL;
   if (!url) return;

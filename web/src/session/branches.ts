@@ -1,7 +1,7 @@
 import { BaseSession } from "./base";
 
 // Wrangler needs distinct exported classes for each container/DO binding
-// These exist purely to set the branch — all logic lives in BaseSession
+// These exist purely to set the branch, all logic lives in BaseSession
 
 export class GmodPublic extends BaseSession {
   protected override branch = "public";

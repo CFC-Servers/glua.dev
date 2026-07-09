@@ -118,8 +118,7 @@ const contextSubtext = (ctx: RequestContext | undefined): string | undefined => 
   return sub(`${location} · ${ipInfo}`);
 };
 
-// Record<CloseReason, ...> is the exhaustiveness guard: adding a new
-// CloseReason without a matching key here is a compile error.
+// Record<CloseReason, ...> is the exhaustiveness guard: adding a new CloseReason without a matching key here is a compile error
 const CLOSE_REASON_DISPLAY: Record<CloseReason, { label: string; icon: string; ansiCode: string; color: number }> = {
   clean: { label: "clean close", icon: "●", ansiCode: "2;32", color: COLORS.sessionEnd },
   timer_expired: { label: "timer expired", icon: "⌛", ansiCode: "2;33", color: COLORS.warning },
