@@ -165,14 +165,6 @@ export class BaseSession extends Container<Env> {
 
   private handleBrowserWebSocket(ws: WebSocket, sessionId: string) {
     ws.accept();
-    this.browserSockets.add(ws);
-
-    if (this.sessionState === "ACTIVE" && this.sessionEndTime) {
-      this.send(ws, { type: "SESSION_TIMER", payload: this.timerPayload() });
-    }
-
-    // Async so we don't block the DO's concurrency gate on R2 reads
-    void this.restoreHistory(ws, sessionId);
 
     if (this.sessionState === "PROVISIONING") {
       this.send(ws, {
@@ -183,6 +175,10 @@ export class BaseSession extends Container<Env> {
 
     ws.addEventListener("message", (msg) => this.onBrowserMessage(msg));
     ws.addEventListener("close", () => this.browserSockets.delete(ws));
+
+    // Sends the history replay, then subscribes the socket to live output
+    // Subscribing happens after the replay snapshot (same synchronous step) so every line is partitioned: replayed if it predates the subscribe, broadcast live if it follows, never both
+    void this.restoreHistory(ws, sessionId);
   }
 
   private async handleInternalBroadcast(request: Request): Promise<Response> {
@@ -196,18 +192,48 @@ export class BaseSession extends Container<Env> {
   }
 
   private async restoreHistory(ws: WebSocket, sessionId: string) {
+    let flushed = "";
     try {
-      let fullLogContent = await readSessionLogs(this.env.LOG_BUCKET, sessionId);
-      if (this.logBuffer.length > 0) {
-        if (fullLogContent.length > 0 && !fullLogContent.endsWith("\n")) {
-          fullLogContent += "\n";
-        }
-        fullLogContent += this.logBuffer.join("\n");
-      }
-      if (fullLogContent.length > 0) {
-        this.send(ws, { type: "HISTORY", payload: fullLogContent });
-      }
+      flushed = await readSessionLogs(this.env.LOG_BUCKET, sessionId);
+    } catch (e) {
+      // R2 unavailable: still replay the in-memory tail below and subscribe, rather than dropping the socket entirely
+      console.error("Could not restore log history from R2:", e);
+    }
 
+    // No await from here until browserSockets.add: the logBuffer snapshot and the subscribe must agree on a single boundary
+    // A LOG that arrives before this block lands in the snapshot (replayed, not yet subscribed); one that arrives after is broadcast live (subscribed, not in the snapshot)
+    let history = flushed;
+    if (this.logBuffer.length > 0) {
+      if (history.length > 0 && !history.endsWith("\n")) history += "\n";
+      history += this.logBuffer.join("\n");
+    }
+
+    if (this.sessionState === "CLOSED") {
+      // Session closed while we were reading: deliver the replay, then close the socket like closeSession would have
+      if (history.length > 0) this.send(ws, { type: "HISTORY", payload: history });
+      this.send(ws, { type: "SESSION_CLOSED" });
+      try {
+        ws.close(1000, "Session ended.");
+      } catch {
+        /* already closed */
+      }
+      return;
+    }
+
+    if (history.length > 0) this.send(ws, { type: "HISTORY", payload: history });
+    this.browserSockets.add(ws);
+
+    // We weren't subscribed during the R2 read, so a PROVISIONING→ACTIVE transition may have broadcast a timer this socket missed
+    if (this.sessionState === "ACTIVE" && this.sessionEndTime) {
+      this.send(ws, { type: "SESSION_TIMER", payload: this.timerPayload() });
+    }
+
+    // Scripts land in a separate client store with no ordering tie to logs, so this can await freely after the subscribe
+    void this.restoreScripts(ws, sessionId);
+  }
+
+  private async restoreScripts(ws: WebSocket, sessionId: string) {
+    try {
       const sessionKey = `sessions/${sessionId}/session.json`;
       const existingSession = await this.env.LOG_BUCKET.get(sessionKey);
       let allScripts: Record<string, ScriptEntry> = {};
@@ -220,7 +246,7 @@ export class BaseSession extends Container<Env> {
         this.send(ws, { type: "SCRIPT_HISTORY", payload: allScripts });
       }
     } catch (e) {
-      console.error("Could not restore history from R2:", e);
+      console.error("Could not restore script history from R2:", e);
     }
   }
 
