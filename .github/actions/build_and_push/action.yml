@@ -154,7 +154,29 @@ runs:
           npx wrangler containers push "glua-dev-sixtyfour:cf"
 
         elif [ "${{ inputs.gmod_branch }}" = "dev" ]; then
-          docker tag "ghcr.io/cfc-servers/glua.dev/dev:latest" "glua-dev-dev:cf"
+          # Re-encode experiment for the dev canary
+          # CF's ext4 converter rejects the docker-slim layer with ImagePullError even though the image is valid and runs under Docker
+          # We rebuild the identical slim rootfs through Docker's own tar encoder instead of shipping mintoolkit's layer to isolate whether the tar dialect is the cause
+          SRC="ghcr.io/cfc-servers/glua.dev/dev:latest"
+
+          cid=$(docker create "$SRC")
+          docker export "$cid" -o /tmp/reencode-rootfs.tar
+          docker rm "$cid"
+
+          # Rebuild the config that docker import drops, read straight from the source image so we don't hardcode per-branch values
+          mapfile -t CHANGES < <(docker inspect "$SRC" | jq -r '
+            .[0].Config as $c
+            | ([$c.Env[]?     | "ENV " + .]
+             + [$c.Entrypoint | select(.) | "ENTRYPOINT " + (. | @json)]
+             + [$c.Cmd        | select(.) | "CMD " + (. | @json)]
+             + [$c.WorkingDir | select(. != "" and . != null) | "WORKDIR " + .]
+             + [$c.User       | select(. != "" and . != null) | "USER " + .]
+             + [($c.ExposedPorts // {} | keys[]) | "EXPOSE " + .])
+            | .[]')
+          args=()
+          for c in "${CHANGES[@]}"; do args+=(--change "$c"); done
+
+          docker import "${args[@]}" /tmp/reencode-rootfs.tar "glua-dev-dev:cf"
           npx wrangler containers push "glua-dev-dev:cf"
 
         elif [ "${{ inputs.gmod_branch }}" = "prerelease" ]; then
