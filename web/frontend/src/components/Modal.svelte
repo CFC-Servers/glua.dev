@@ -85,6 +85,9 @@
         {#if !inQueue}
             <div>
                 <h2 class="text-2xl font-bold mb-4 text-white">Start New GLua Session</h2>
+                <div class="bg-amber-500/10 border border-amber-500/40 rounded-md px-4 py-3 mb-6 text-left">
+                    <p class="text-amber-300 text-sm">Heads up: sessions may be unreliable right now. This is a bug upstream (not on our end), and the fix will take some time. Thanks for your patience!</p>
+                </div>
                 <p class="text-gray-400 mb-6">Select your desired game branch and spin up a real GMod environment in seconds</p>
                 <div class="mb-6">
                     <label for="container-type-select" class="block text-sm font-medium text-gray-300 mb-2 text-left">GMod Branch</label>
