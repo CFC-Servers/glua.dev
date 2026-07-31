@@ -38,6 +38,7 @@ docker image rm glua-dev-public-fat
 docker builder prune -f
 
 
+python3 ./docker/make_split.py glua-dev-public:cf glua-dev-public:cf
 npx wrangler -c ./web containers push glua-dev-public:cf
 docker image rm glua-dev-public:cf
 docker builder prune -f
@@ -50,6 +51,7 @@ docker build --build-arg GMOD_BRANCH=x86-64 --build-arg GAME_VERSION=$sixtyfour 
 docker image rm glua-dev-sixtyfour-fat
 docker builder prune -f
 
+python3 ./docker/make_split.py glua-dev-sixtyfour:cf glua-dev-sixtyfour:cf
 npx wrangler -c ./web containers push glua-dev-sixtyfour:cf
 docker image rm glua-dev-sixtyfour:cf
 docker builder prune -f
@@ -62,6 +64,7 @@ docker build --build-arg GMOD_BRANCH=dev --build-arg GAME_VERSION=$dev --build-a
 docker image rm glua-dev-dev-fat
 docker builder prune -f
 
+python3 ./docker/make_split.py glua-dev-dev:cf glua-dev-dev:cf
 npx wrangler -c ./web containers push glua-dev-dev:cf
 docker image rm glua-dev-dev:cf
 docker builder prune -f
@@ -74,6 +77,7 @@ docker build --build-arg GMOD_BRANCH=prerelease --build-arg GAME_VERSION=$prerel
 docker image rm glua-dev-prerelease-fat
 docker builder prune -f
 
+python3 ./docker/make_split.py glua-dev-prerelease:cf glua-dev-prerelease:cf
 npx wrangler -c ./web containers push glua-dev-prerelease:cf
 docker image rm glua-dev-prerelease:cf
 docker builder prune -f
