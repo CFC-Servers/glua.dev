@@ -111,7 +111,8 @@ echo ""
 echo "Server console output:"
 
 while screen -list | grep -q "gmod"; do
-    if ! kill -0 "$agent_pid" 2>/dev/null; then
+    # no WORKER_URL = docker-slim probe: stay up so the probe sees late-loaded libs
+    if [ -n "$WORKER_URL" ] && ! kill -0 "$agent_pid" 2>/dev/null; then
         wait "$agent_pid"
         agent_exit=$?
         echo "Agent exited ($agent_exit) - stopping server"
