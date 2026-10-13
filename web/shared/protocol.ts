@@ -30,8 +30,6 @@ export type ClientMessage =
 export type AgentMessage =
   // Live console output, tailed line-by-line as the server runs
   | { type: "LOG"; payload: string | string[] }
-  // One-shot dump of the console backlog the container wrote before the agent's socket came up, sent once on connect
-  | { type: "HISTORY_DUMP"; payload: string | string[] }
   | { type: "HEALTH"; payload: HealthPayload }
   | { type: "METADATA"; payload: AgentMetadataPayload }
   | { type: "AGENT_SHUTDOWN" };

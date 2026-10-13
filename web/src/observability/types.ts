@@ -42,6 +42,8 @@ export interface SessionEndedEvent {
   exitCode?: number;
   /** "exit" for a clean stop, "runtime_signal" for a killed process */
   exitReason?: string;
+  /** How many times we tried to launch the container, including the first attempt */
+  startAttempts?: number;
   context?: RequestContext;
   capacity?: CapacitySnapshot;
 }

@@ -1,7 +1,7 @@
 import { Container } from "@cloudflare/containers";
 import type { AgentMessage, ClientMessage, ScriptEntry, ServerMessage, SessionMetadata } from "@glua/shared";
 import { MAX_SCRIPT_SIZE, MAX_SCRIPTS_PER_SESSION } from "@glua/shared";
-import { AGENT_TOKEN_HEADER, SESSION_TIMING } from "../constants";
+import { AGENT_TOKEN_HEADER, MAX_START_RETRIES, SESSION_TIMING } from "../constants";
 import type { Env } from "../env";
 import {
   type CapacitySnapshot,
@@ -40,6 +40,7 @@ export class BaseSession extends Container<Env> {
   private sessionDuration?: number;
   private extensionGranted = false;
   private startRetries = 0;
+  private provisioningStartedAt?: number;
   // Per-session secret minted when we start the container and handed to it via envVars
   // The agent echoes it on the /ws/agent handshake so a browser that knows the session UUID still can't impersonate the container
   private agentToken?: string;
@@ -99,7 +100,12 @@ export class BaseSession extends Container<Env> {
 
     if (url.pathname === "/ws/browser" && this.sessionState === "NEW") {
       this.sessionState = "PROVISIONING";
+      this.provisioningStartedAt = Date.now();
+      this.schedule(SESSION_TIMING.provisioningBudget / 1000, "checkProvisioning").catch((e) =>
+        console.error("Failed to schedule checkProvisioning:", e),
+      );
       this.obsContext = parseContext(request.headers.get(OBS_CONTEXT_HEADER));
+      this.systemLog("\u001b[33mProvisioning container... Waiting for agent connection.\u001b[0m");
 
       void (async () => {
         const capacity = await this.fetchCapacitySnapshot();
@@ -157,7 +163,7 @@ export class BaseSession extends Container<Env> {
     this.sessionDuration = SESSION_TIMING.duration;
     this.sessionEndTime = Date.now() + this.sessionDuration;
     this.broadcast({ type: "SESSION_TIMER", payload: this.timerPayload() });
-    this.broadcast({ type: "LOGS", payload: ["\u001b[32mAgent connected. Session is live.\u001b[0m"] });
+    this.systemLog("\u001b[32mAgent connected. Session is live.\u001b[0m");
 
     this.renewActivityTimeout();
     this.scheduleTick();
@@ -172,13 +178,6 @@ export class BaseSession extends Container<Env> {
 
   private handleBrowserWebSocket(ws: WebSocket, sessionId: string) {
     ws.accept();
-
-    if (this.sessionState === "PROVISIONING") {
-      this.send(ws, {
-        type: "LOGS",
-        payload: ["\u001b[33mProvisioning container... Waiting for agent connection.\u001b[0m"],
-      });
-    }
 
     ws.addEventListener("message", (msg) => this.onBrowserMessage(msg));
     ws.addEventListener("close", () => this.browserSockets.delete(ws));
@@ -260,6 +259,7 @@ export class BaseSession extends Container<Env> {
   // ── Container lifecycle ──
 
   private async startContainer(sessionId: string) {
+    if (this.sessionState !== "PROVISIONING") return;
     this.agentToken = crypto.randomUUID();
     try {
       await this.start({
@@ -269,12 +269,10 @@ export class BaseSession extends Container<Env> {
           AGENT_TOKEN: this.agentToken,
         },
       });
+      this.systemLog("\u001b[33mContainer started. Waiting for agent...\u001b[0m");
     } catch (e) {
       console.error("Container start error:", e);
-      this.broadcast({
-        type: "LOGS",
-        payload: [`\u001b[31mFailed to start container: ${e instanceof Error ? e.message : String(e)}\u001b[0m`],
-      });
+      this.systemLog(`\u001b[31mFailed to start container: ${e instanceof Error ? e.message : String(e)}\u001b[0m`);
       this.notifyAsync(
         notify.error(this.env, {
           where: "startContainer",
@@ -288,22 +286,41 @@ export class BaseSession extends Container<Env> {
     }
   }
 
-  override onStart(): void {
-    this.broadcast({ type: "LOGS", payload: ["\u001b[33mContainer started. Waiting for agent...\u001b[0m"] });
-    this.renewActivityTimeout();
-  }
-
   override async onStop(params: { exitCode: number; reason: "exit" | "runtime_signal" }): Promise<void> {
     this.lastExitCode = params.exitCode;
     this.lastExitReason = params.reason;
-    if (this.sessionState === "PROVISIONING" && this.startRetries < 3) {
-      this.startRetries++;
-      console.warn(`[onStop] Container died during provisioning, retry ${this.startRetries}/3`);
-      await new Promise((r) => setTimeout(r, 2000));
-      void this.startContainer(this.sessionId);
+
+    if (this.sessionState !== "PROVISIONING") {
+      await this.closeSession("container_stopped");
       return;
     }
-    await this.closeSession("container_stopped");
+
+    const attempt = this.startRetries + 1;
+    console.warn(
+      `[onStop] Container died during provisioning on attempt ${attempt} (exit ${params.exitCode}, ${params.reason})`,
+    );
+    this.systemLog(
+      `\u001b[31mContainer exited during startup on attempt ${attempt} (exit code ${params.exitCode}, ${params.reason}).\u001b[0m`,
+    );
+
+    const elapsed = this.provisioningStartedAt === undefined ? 0 : Date.now() - this.provisioningStartedAt;
+    const budgetSpent = elapsed >= SESSION_TIMING.provisioningBudget;
+
+    if (this.startRetries >= MAX_START_RETRIES || budgetSpent) {
+      this.systemLog(
+        `\u001b[31mGave up after ${attempt} attempt(s) over ${Math.round(elapsed / 1000)}s. The game server never finished booting — this is a glua.dev problem, not your script.\u001b[0m`,
+      );
+      await this.closeSession("container_start_failed");
+      return;
+    }
+
+    this.startRetries++;
+    this.systemLog(`\u001b[33mRetrying (${this.startRetries}/${MAX_START_RETRIES})...\u001b[0m`);
+    // failing sessions never reach an activityTick flush, so persist now
+    await this.flushLogsToR2();
+
+    await new Promise((r) => setTimeout(r, 2000));
+    void this.startContainer(this.sessionId);
   }
 
   override async onError(error: unknown): Promise<void> {
@@ -342,10 +359,7 @@ export class BaseSession extends Container<Env> {
     try {
       const message = JSON.parse(msg.data as string) as AgentMessage;
       switch (message.type) {
-        // HISTORY_DUMP is the container's pre-connect console backlog, sent once on connect
-        // It's the only source of the server's boot logs (the agent's tail only follows lines written after it attaches), so we treat it exactly like live output
-        case "LOG":
-        case "HISTORY_DUMP": {
+        case "LOG": {
           const lines = Array.isArray(message.payload) ? message.payload : [String(message.payload)];
           this.logBuffer.push(...lines);
           this.logLineCount += lines.length;
@@ -463,10 +477,28 @@ export class BaseSession extends Container<Env> {
     this.sessionState = "CLOSED";
     await this.ctx.storage.put(CLOSED_FLAG, true);
     const endedAt = Date.now();
-    if (this.sessionMetadata) {
-      this.sessionMetadata.endedAt = endedAt;
-      this.sessionMetadata.closeReason = reason;
+
+    this.systemLog(`\u001b[2mSession ended (${reason}).\u001b[0m`);
+
+    // never-ACTIVE sessions still need session.json; after a DO eviction the in-memory copy is gone
+    if (!this.sessionMetadata) {
+      try {
+        const existing = await this.env.LOG_BUCKET.get(`sessions/${this.sessionId}/session.json`);
+        if (existing) {
+          this.sessionMetadata = (JSON.parse(await existing.text()) as { metadata?: SessionMetadata }).metadata ?? null;
+        }
+      } catch {
+        /* fall through to the synthesized record below */
+      }
     }
+    this.sessionMetadata ??= {
+      branch: this.branch,
+      gameVersion: "unknown",
+      containerTag: "unknown",
+      startedAt: this.provisioningStartedAt ?? endedAt,
+    };
+    this.sessionMetadata.endedAt = endedAt;
+    this.sessionMetadata.closeReason = reason;
 
     if (this.containerSocket) {
       try {
@@ -511,6 +543,7 @@ export class BaseSession extends Container<Env> {
           extensionGranted: this.extensionGranted,
           exitCode: this.lastExitCode,
           exitReason: this.lastExitReason,
+          startAttempts: this.startRetries + 1,
           context: this.obsContext,
           capacity,
         });
@@ -519,8 +552,12 @@ export class BaseSession extends Container<Env> {
   }
 
   private async notifyQueueManagerOfClosure() {
-    const manager = this.env.SESSION_MANAGER.get(this.env.SESSION_MANAGER.idFromName("global-queue"));
-    await manager.sessionClosed(this.sessionId);
+    try {
+      const manager = this.env.SESSION_MANAGER.get(this.env.SESSION_MANAGER.idFromName("global-queue"));
+      await manager.sessionClosed(this.sessionId);
+    } catch (e) {
+      console.error("Failed to notify queue manager:", e);
+    }
   }
 
   // ── Scheduled callbacks (periodic flush + timeout check) ──
@@ -563,6 +600,14 @@ export class BaseSession extends Container<Env> {
     }
 
     this.scheduleExpiryCheck(this.sessionEndTime);
+  }
+
+  async checkProvisioning() {
+    if (this.sessionState !== "PROVISIONING") return;
+    this.systemLog(
+      `\u001b[31mNo agent connected within ${SESSION_TIMING.provisioningBudget / 1000}s — giving up on this session.\u001b[0m`,
+    );
+    await this.closeSession("container_start_failed");
   }
 
   private scheduleTick(): void {
@@ -682,6 +727,13 @@ export class BaseSession extends Container<Env> {
     } catch (e) {
       console.error("Failed to send to browser socket:", e);
     }
+  }
+
+  // like broadcast(), but also lands in logBuffer so it survives to R2 and history replay
+  private systemLog(...lines: string[]): void {
+    this.logBuffer.push(...lines);
+    this.logLineCount += lines.length;
+    this.broadcast({ type: "LOGS", payload: lines });
   }
 
   private broadcast(message: ServerMessage): void {

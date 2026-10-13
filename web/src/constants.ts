@@ -3,6 +3,8 @@
 /** Header the container agent uses to prove it owns the session on the /ws/agent handshake */
 export const AGENT_TOKEN_HEADER = "X-Agent-Token";
 
+export const MAX_START_RETRIES = 3;
+
 export const SESSION_TIMING = {
   /** How long a fresh session lasts */
   duration: 10 * 60_000,
@@ -14,6 +16,8 @@ export const SESSION_TIMING = {
   extensionThreshold: 2 * 60_000,
   /** How often we ping the container and flush logs to R2 */
   activityPing: 30_000,
+  /** Ceiling on the whole PROVISIONING phase, retries included */
+  provisioningBudget: 150_000,
 } as const;
 
 export const QUEUE_TIMING = {

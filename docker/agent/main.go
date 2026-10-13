@@ -73,6 +73,11 @@ var (
 
 var shutdownOnce sync.Once
 
+// Keep in sync with the entrypoint's PID_WAIT_TIMEOUT.
+const pidWaitTimeout = 3 * time.Minute
+
+const initialHeartbeatWait = 3 * time.Minute
+
 func main() {
 	if workerURL == "" || sessionID == "" {
 		log.Fatal("WORKER_URL and SESSION_ID environment variables are required")
@@ -82,14 +87,7 @@ func main() {
 
 	ctx, cancel := context.WithCancel(context.Background())
 
-	pid, err := waitForAndReadPID(ctx, pidFilePath)
-	if err != nil {
-		cancel()
-		log.Fatalf("Failed to get game server PID: %v", err)
-	}
-	log.Printf("Now monitoring game server with PID: %d", pid)
-
-	conn, err := connectToWorker(ctx)
+	conn, err := connectToWorkerWithRetry(ctx)
 	if err != nil {
 		cancel()
 		log.Fatalf("Failed to establish WebSocket connection: %v", err)
@@ -100,15 +98,36 @@ func main() {
 	go webSocketWriter(conn, writeChan)
 
 	sendMetadata(writeChan)
-	dumpInitialLogs(writeChan)
 
 	go tailLogs(ctx, writeChan)
 	go sendHealthStats(ctx, writeChan)
-	go monitorGameProcess(ctx, pid, writeChan, cancel)
-	go monitorHeartbeat(ctx, pid, writeChan, cancel)
+	go awaitServerAndMonitor(ctx, writeChan, cancel)
 
 	listenForCommands(ctx, conn)
-	shutdown(writeChan, cancel, "")
+	shutdown(writeChan, cancel, "", 0)
+}
+
+func awaitServerAndMonitor(ctx context.Context, writeChan chan<- WebSocketMessageOut, cancel context.CancelFunc) {
+	pid, err := waitForAndReadPID(ctx, pidFilePath, pidWaitTimeout)
+	if err != nil {
+		if ctx.Err() != nil {
+			return // shutting down, not a boot failure
+		}
+		log.Printf("Boot failure: %v", err)
+		select {
+		case writeChan <- WebSocketMessageOut{
+			Type:    "LOG",
+			Payload: colored(colorRed, fmt.Sprintf("Game server failed to boot: no PID file within %s.", pidWaitTimeout)),
+		}:
+		case <-ctx.Done():
+		}
+		shutdown(writeChan, cancel, "", 1)
+		return
+	}
+	log.Printf("Now monitoring game server with PID: %d", pid)
+
+	go monitorGameProcess(ctx, pid, writeChan, cancel)
+	monitorHeartbeat(ctx, pid, writeChan, cancel)
 }
 
 func getGameVersionString() string {
@@ -148,21 +167,27 @@ func cleanFileName(fileName string) string {
 // webSocketWriter is the only goroutine permitted to write to the WebSocket connection.
 func webSocketWriter(c *websocket.Conn, writeChan <-chan WebSocketMessageOut) {
 	defer c.Close()
+	dead := false
 	for message := range writeChan {
+		if dead {
+			continue
+		}
+		c.SetWriteDeadline(time.Now().Add(10 * time.Second))
 		if err := c.WriteJSON(message); err != nil {
 			log.Printf("Error writing json to websocket: %v", err)
-			return
+			dead = true
 		}
 	}
 	log.Println("Write channel closed. Sending close message.")
+	c.SetWriteDeadline(time.Now().Add(10 * time.Second))
 	c.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(1000, "Normal Closure"))
 }
 
-func waitForAndReadPID(ctx context.Context, path string) (int, error) {
+func waitForAndReadPID(ctx context.Context, path string, timeout time.Duration) (int, error) {
 	ticker := time.NewTicker(250 * time.Millisecond)
 	defer ticker.Stop()
 
-	timeoutCtx, timeoutCancel := context.WithTimeout(ctx, 30*time.Second)
+	timeoutCtx, timeoutCancel := context.WithTimeout(ctx, timeout)
 	defer timeoutCancel()
 
 	for {
@@ -206,8 +231,32 @@ func connectToWorker(ctx context.Context) (*websocket.Conn, error) {
 	}
 
 	log.Printf("Connecting to %s", u.String())
-	c, _, err := websocket.DefaultDialer.DialContext(ctx, u.String(), header)
+	c, _, err := dialer.DialContext(ctx, u.String(), header)
 	return c, err
+}
+
+var dialer = &websocket.Dialer{
+	Proxy:            http.ProxyFromEnvironment,
+	HandshakeTimeout: 5 * time.Second,
+}
+
+func connectToWorkerWithRetry(ctx context.Context) (*websocket.Conn, error) {
+	var lastErr error
+	for attempt := 1; attempt <= 5; attempt++ {
+		conn, err := connectToWorker(ctx)
+		if err == nil {
+			return conn, nil
+		}
+		lastErr = err
+		log.Printf("Worker connect attempt %d/5 failed: %v", attempt, err)
+
+		select {
+		case <-time.After(2 * time.Second):
+		case <-ctx.Done():
+			return nil, lastErr
+		}
+	}
+	return nil, lastErr
 }
 
 // monitorGameProcess checks if the game server process is still running.
@@ -218,7 +267,7 @@ func monitorGameProcess(ctx context.Context, pid int, writeChan chan<- WebSocket
 	process, err := os.FindProcess(pid)
 	if err != nil {
 		log.Printf("Could not find process with PID %d: %v. Shutting down.", pid, err)
-		shutdown(writeChan, cancel, colored(colorRed, "Game server process not found."))
+		shutdown(writeChan, cancel, colored(colorRed, "Game server process not found."), 0)
 		return
 	}
 
@@ -230,7 +279,7 @@ func monitorGameProcess(ctx context.Context, pid int, writeChan chan<- WebSocket
 			err := process.Signal(syscall.Signal(0))
 			if err != nil {
 				log.Printf("Game server process (PID: %d) is no longer running (err: %v). Shutting down.", pid, err)
-				shutdown(writeChan, cancel, colored(colorOrange, "Game server process exited."))
+				shutdown(writeChan, cancel, colored(colorOrange, "Game server process exited."), 0)
 				return
 			}
 		}
@@ -257,9 +306,12 @@ func waitForFile(ctx context.Context, path string, timeout time.Duration) bool {
 }
 
 func monitorHeartbeat(ctx context.Context, pid int, writeChan chan<- WebSocketMessageOut, cancel context.CancelFunc) {
-	if !waitForFile(ctx, heartbeatPath, 15*time.Second) {
-		log.Println("Heartbeat file never appeared after 15s, server is unresponsive.")
-		killStaleServer(pid, 15, writeChan, cancel)
+	if !waitForFile(ctx, heartbeatPath, initialHeartbeatWait) {
+		if ctx.Err() != nil {
+			return // shutting down, not a stale server
+		}
+		log.Printf("Heartbeat file never appeared within %s, server is unresponsive.", initialHeartbeatWait)
+		killStaleServer(pid, int64(initialHeartbeatWait.Seconds()), writeChan, cancel)
 		return
 	}
 
@@ -299,7 +351,7 @@ func killStaleServer(pid int, age int64, writeChan chan<- WebSocketMessageOut, c
 		process.Signal(syscall.SIGKILL)
 	}
 
-	shutdown(writeChan, cancel, colored(colorRed, fmt.Sprintf("Server heartbeat lost (%ds ago). Killing unresponsive server 🔪", age)))
+	shutdown(writeChan, cancel, colored(colorRed, fmt.Sprintf("Server heartbeat lost (%ds ago). Killing unresponsive server 🔪", age)), 1)
 }
 
 func sendMetadata(writeChan chan<- WebSocketMessageOut) {
@@ -314,40 +366,32 @@ func sendMetadata(writeChan chan<- WebSocketMessageOut) {
 	writeChan <- message
 }
 
-func shutdown(writeChan chan<- WebSocketMessageOut, cancel context.CancelFunc, message string) {
+func shutdown(writeChan chan<- WebSocketMessageOut, cancel context.CancelFunc, message string, exitCode int) {
 	shutdownOnce.Do(func() {
 		log.Println("Initiating shutdown sequence...")
 		cancel()
 
 		if message != "" {
-			writeChan <- WebSocketMessageOut{Type: "LOG", Payload: message}
+			select {
+			case writeChan <- WebSocketMessageOut{Type: "LOG", Payload: message}:
+			case <-time.After(2 * time.Second):
+			}
 		}
-		writeChan <- WebSocketMessageOut{Type: "AGENT_SHUTDOWN", Payload: "Agent is shutting down."}
+		select {
+		case writeChan <- WebSocketMessageOut{Type: "AGENT_SHUTDOWN", Payload: "Agent is shutting down."}:
+		case <-time.After(2 * time.Second):
+		}
 
 		close(writeChan)
 
 		time.Sleep(1 * time.Second)
 
 		log.Println("Shutdown complete. Exiting.")
-		os.Exit(0)
+		os.Exit(exitCode)
 	})
 }
 
 // --- WebSocket Communication Goroutines ---
-
-func dumpInitialLogs(writeChan chan<- WebSocketMessageOut) {
-	initialContent, err := os.ReadFile(logFilePath)
-	if err != nil {
-		if !os.IsNotExist(err) {
-			log.Printf("Error reading initial log file: %v", err)
-		}
-		return
-	}
-	if len(initialContent) > 0 {
-		message := WebSocketMessageOut{Type: "HISTORY_DUMP", Payload: strings.Split(string(initialContent), "\n")}
-		writeChan <- message
-	}
-}
 
 func tailLogs(ctx context.Context, writeChan chan<- WebSocketMessageOut) {
 	time.Sleep(250 * time.Millisecond)

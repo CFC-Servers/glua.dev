@@ -72,6 +72,7 @@ srcds_args="$EXTRA_STARTUP_ARGS ${base_srcds_args[@]}"
 echo "Size of the agent binary: $(du -h /usr/local/bin/gluadev-agent | cut -f1)"
 # Start command server
 /usr/local/bin/gluadev-agent &
+agent_pid=$!
 
 # Start game server
 if [ "$gmodbranch" = "x86-64" ]; then
@@ -84,11 +85,18 @@ fi
 
 echo ""
 echo ""
-echo "Waiting for server to start..."
-timeout 1m bash -c "until [ -f '$server/$pidfile' ]; do sleep 0.1; done"
+# keep in sync with pidWaitTimeout in agent/main.go
+pid_wait=${PID_WAIT_TIMEOUT:-3m}
+
+echo "Waiting for server to start (timeout: $pid_wait)..."
+timeout "$pid_wait" bash -c "until [ -f '$server/$pidfile' ] || ! screen -list | grep -q gmod; do sleep 0.1; done"
 if [ ! -f "$server/$pidfile" ]; then
-    echo "Server did not start in time, exiting"
-    cat "$server/console.log"
+    echo "!!! Server did not write $pidfile within $pid_wait - exiting"
+    echo "!!! screen sessions:"
+    screen -list || echo "    (none)"
+    echo "!!! console.log (last 200 lines):"
+    tail -n 200 "$server/console.log" || echo "    (console.log unreadable)"
+    kill "$agent_pid" 2>/dev/null
     exit 1
 fi
 
@@ -103,6 +111,13 @@ echo ""
 echo "Server console output:"
 
 while screen -list | grep -q "gmod"; do
+    if ! kill -0 "$agent_pid" 2>/dev/null; then
+        wait "$agent_pid"
+        agent_exit=$?
+        echo "Agent exited ($agent_exit) - stopping server"
+        screen -S gmod -X quit
+        exit "$agent_exit"
+    fi
     sleep 1
 done
 

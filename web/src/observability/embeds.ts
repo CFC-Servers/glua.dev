@@ -175,7 +175,9 @@ export function buildSessionEndedEmbed(e: SessionEndedEvent): DiscordEmbed {
   const lines: string[] = [
     code(truncate(e.sessionId, 100)),
     `### ${ctx ? locationHeader(ctx) : "🌐 Unknown location"}`,
-    sub(`ended ${relativeTimestamp()}${durationMs !== undefined ? ` · ran for **${duration(durationMs)}**` : ""}`),
+    sub(
+      `ended ${relativeTimestamp()}${durationMs !== undefined ? ` · ran for **${duration(durationMs)}**` : ""}${ctx?.colo ? ` · edge ${code(ctx.colo)}` : ""}`,
+    ),
   ];
   if (e.capacity) lines.push(sub(capacityLine(e.capacity)));
 
@@ -192,6 +194,10 @@ export function buildSessionEndedEmbed(e: SessionEndedEvent): DiscordEmbed {
   if (e.exitCode !== undefined) {
     const exitValue = e.exitReason ? `${code(String(e.exitCode))} (${e.exitReason})` : code(String(e.exitCode));
     fields.push({ name: "Exit code", value: exitValue, inline: true });
+  }
+
+  if (e.startAttempts !== undefined && e.startAttempts > 1) {
+    fields.push({ name: "Start attempts", value: code(String(e.startAttempts)), inline: true });
   }
 
   return {
