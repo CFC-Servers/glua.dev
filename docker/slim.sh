@@ -5,13 +5,14 @@ tag=$3 # Gluadev tag
 slim build \
     --target "glua-dev-$branch-fat" \
     --http-probe-off \
-    --continue-after 30 \
+    --continue-after 60 \
     --show-clogs --show-blogs \
     --include-bin "/usr/bin/date" \
     --include-bin "/usr/bin/echo" \
     --include-bin "/usr/bin/cp" \
     --include-bin "/usr/bin/screen" \
     --include-path "/home/steam/gmodserver/bin" \
+    --include-path "/home/steam/gmodserver/garrysmod/bin" \
     --include-path "/www" \
     --include-path "/home/steam/metadata" \
     --include-shell \

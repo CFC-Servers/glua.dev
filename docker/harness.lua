@@ -135,6 +135,28 @@ do
     end
 end
 
+do
+    local file_Exists = file.Exists
+    local file_Delete = file.Delete
+    local hook_Add = hook.Add
+    local timer_Simple = timer.Simple
+    local engine_CloseServer = engine.CloseServer
+
+    local dataDir = Harness.dataDir
+    local probeFile = dataDir .. "/probe.txt"
+
+    --- Used during the docker-slim to make sure the server starts fully and then gracefully exits
+    hook_Add( "InitPostEntity", "GLuaDev_ProbeExit", function()
+        if not file_Exists( probeFile, "DATA" ) then return end
+
+        logger:Info( "Probe boot complete, quitting" )
+        file_Delete( probeFile, "DATA" )
+        timer_Simple( 2, function()
+            engine_CloseServer()
+        end )
+    end )
+end
+
 function Harness:Init()
     self.CreateScriptWatcher()
     self.StartHeartbeat()

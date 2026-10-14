@@ -74,6 +74,11 @@ echo "Size of the agent binary: $(du -h /usr/local/bin/gluadev-agent | cut -f1)"
 /usr/local/bin/gluadev-agent &
 agent_pid=$!
 
+# harness.lua quits the server at full load while this flag exists, ending the slim probe
+if [ -z "$WORKER_URL" ]; then
+    touch "$server/data/gluadev/probe.txt"
+fi
+
 # Start game server
 if [ "$gmodbranch" = "x86-64" ]; then
     echo "Starting 64-bit server"
@@ -122,4 +127,5 @@ while screen -list | grep -q "gmod"; do
     sleep 1
 done
 
+rm -f "$server/data/gluadev/probe.txt"
 echo "Server has stopped - exiting"
