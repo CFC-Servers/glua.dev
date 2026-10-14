@@ -91,11 +91,9 @@ runs:
           --include-bin "/usr/bin/echo" \
           --include-bin "/usr/bin/cp" \
           --include-bin "/usr/bin/screen" \
+          --include-path "/home/steam/gmodserver/bin" \
           --include-path "/www" \
           --include-path "/home/steam/metadata" \
-          --include-bin "/home/steam/gmodserver/bin/libbass.so" \
-          --include-bin "/home/steam/gmodserver/bin/linux64/libbass.so" \
-          --include-bin "/home/steam/gmodserver/bin/gmod_audio.so" \
           --include-shell \
           --expose 8080 \
           --tag $BASE:$rawVersionTag \

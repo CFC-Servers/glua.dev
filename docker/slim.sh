@@ -11,6 +11,7 @@ slim build \
     --include-bin "/usr/bin/echo" \
     --include-bin "/usr/bin/cp" \
     --include-bin "/usr/bin/screen" \
+    --include-path "/home/steam/gmodserver/bin" \
     --include-path "/www" \
     --include-path "/home/steam/metadata" \
     --include-shell \
